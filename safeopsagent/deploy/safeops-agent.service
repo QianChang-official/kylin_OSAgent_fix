@@ -1,0 +1,17 @@
+[Unit]
+Description=SafeOpsAgent Backend API
+After=network.target
+
+[Service]
+Type=simple
+User=opsagent
+Group=opsagent
+WorkingDirectory=/opt/safeopsagent
+Environment=PATH=/opt/safeopsagent/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/etc/safeops-agent/env.conf
+ExecStart=/opt/safeopsagent/venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

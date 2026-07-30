@@ -1,0 +1,4 @@
+# Optional standard MCP stdio server dependency.
+# Keep this separate from backend/requirements.txt so the default backend and
+# low-resource Kylin V11 smoke path do not depend on MCP SDK installation.
+mcp>=1,<2

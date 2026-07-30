@@ -1,0 +1,7 @@
+*.sh text eol=lf
+deploy/*.service text eol=lf
+scripts/*.py text eol=lf
+*.md text eol=lf
+frontend/vue-console/** text eol=lf
+backend/static/console/** text eol=lf
+backend/static/console/assets/* -whitespace
