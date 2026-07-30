@@ -1,0 +1,17 @@
+[Unit]
+Description=SafeOpsAgent Optional Streamlit Development Frontend
+After=safeops-agent.service
+
+[Service]
+Type=simple
+User=opsagent
+Group=opsagent
+WorkingDirectory=/opt/safeopsagent
+Environment=PATH=/opt/safeopsagent/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/etc/safeops-agent/env.conf
+ExecStart=/opt/safeopsagent/venv/bin/streamlit run frontend/streamlit_app.py --server.port 8501 --server.address 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

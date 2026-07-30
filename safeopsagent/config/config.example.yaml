@@ -1,0 +1,31 @@
+# SafeOpsAgent legacy/reference configuration sample
+#
+# The current backend reads runtime configuration from environment variables.
+# This YAML file is not loaded automatically by the default startup flow.
+# Do not copy real API keys into this file or commit credentials.
+
+llm:
+  configuration_source: "environment_variables"
+  MODEL_PROVIDER: "offline_safe"
+  MODEL_API_KEY: ""
+  MODEL_NAME: ""
+  MODEL_API_BASE: ""
+  note: "Use deepseek, qwen, kimi, custom, or offline_safe. Provider defaults are handled by the model gateway."
+
+agent:
+  max_context_rounds: 6
+  tool_result_max_lines: 50
+  request_timeout: 30
+
+audit:
+  db_path: "./data/audit.db"
+  retention_days: 7
+
+security:
+  delete_commands:
+    - rm
+    - rm -rf
+    - truncate
+    - shred
+  exec_timeout: 10
+  exec_max_output_lines: 100

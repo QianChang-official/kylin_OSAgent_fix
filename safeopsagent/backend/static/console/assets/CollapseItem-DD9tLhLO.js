@@ -1,0 +1,41 @@
+import{r as T,bB as D,$ as L,v as N,d as E,Y as s,aH as m,aJ as v,aI as i,aF as A,bC as V,aK as K,aO as F,aQ as k,aP as B,aR as Z,bD as q,O as Q,U as J,b1 as $,bE as Y,W as G,_ as U,aZ as X,by as S,aD as ee,bF as re,a9 as ae,P as te,bg as le,Q as ne}from"./index-DZdajVKh.js";function _(e,a){let{target:r}=e;for(;r;){if(r.dataset&&r.dataset[a]!==void 0)return!0;r=r.parentElement}return!1}function oe(e){const a=T(!!e.value);if(a.value)return D(a);const r=L(e,n=>{n&&(a.value=!0,r())});return D(a)}function se(e,a){return L(e,r=>{r!==void 0&&(a.value=r)}),N(()=>e.value===void 0?a.value:e.value)}const ie=E({name:"ChevronLeft",render(){return s("svg",{viewBox:"0 0 16 16",fill:"none",xmlns:"http://www.w3.org/2000/svg"},s("path",{d:"M10.3536 3.14645C10.5488 3.34171 10.5488 3.65829 10.3536 3.85355L6.20711 8L10.3536 12.1464C10.5488 12.3417 10.5488 12.6583 10.3536 12.8536C10.1583 13.0488 9.84171 13.0488 9.64645 12.8536L5.14645 8.35355C4.95118 8.15829 4.95118 7.84171 5.14645 7.64645L9.64645 3.14645C9.84171 2.95118 10.1583 2.95118 10.3536 3.14645Z",fill:"currentColor"}))}}),de=E({name:"ChevronRight",render(){return s("svg",{viewBox:"0 0 16 16",fill:"none",xmlns:"http://www.w3.org/2000/svg"},s("path",{d:"M5.64645 3.14645C5.45118 3.34171 5.45118 3.65829 5.64645 3.85355L9.79289 8L5.64645 12.1464C5.45118 12.3417 5.45118 12.6583 5.64645 12.8536C5.84171 13.0488 6.15829 13.0488 6.35355 12.8536L10.8536 8.35355C11.0488 8.15829 11.0488 7.84171 10.8536 7.64645L6.35355 3.14645C6.15829 2.95118 5.84171 2.95118 5.64645 3.14645Z",fill:"currentColor"}))}}),ce=m("collapse","width: 100%;",[m("collapse-item",`
+ font-size: var(--n-font-size);
+ color: var(--n-text-color);
+ transition:
+ color .3s var(--n-bezier),
+ border-color .3s var(--n-bezier);
+ margin: var(--n-item-margin);
+ `,[v("disabled",[i("header","cursor: not-allowed;",[i("header-main",`
+ color: var(--n-title-text-color-disabled);
+ `),m("collapse-item-arrow",`
+ color: var(--n-arrow-color-disabled);
+ `)])]),m("collapse-item","margin-left: 32px;"),A("&:first-child","margin-top: 0;"),A("&:first-child >",[i("header","padding-top: 0;")]),v("left-arrow-placement",[i("header",[m("collapse-item-arrow","margin-right: 4px;")])]),v("right-arrow-placement",[i("header",[m("collapse-item-arrow","margin-left: 4px;")])]),i("content-wrapper",[i("content-inner","padding-top: 16px;"),V({duration:"0.15s"})]),v("active",[i("header",[v("active",[m("collapse-item-arrow","transform: rotate(90deg);")])])]),A("&:not(:first-child)","border-top: 1px solid var(--n-divider-color);"),K("disabled",[v("trigger-area-main",[i("header",[i("header-main","cursor: pointer;"),m("collapse-item-arrow","cursor: default;")])]),v("trigger-area-arrow",[i("header",[m("collapse-item-arrow","cursor: pointer;")])]),v("trigger-area-extra",[i("header",[i("header-extra","cursor: pointer;")])])]),i("header",`
+ font-size: var(--n-title-font-size);
+ display: flex;
+ flex-wrap: nowrap;
+ align-items: center;
+ transition: color .3s var(--n-bezier);
+ position: relative;
+ padding: var(--n-title-padding);
+ color: var(--n-title-text-color);
+ `,[i("header-main",`
+ display: flex;
+ flex-wrap: nowrap;
+ align-items: center;
+ font-weight: var(--n-title-font-weight);
+ transition: color .3s var(--n-bezier);
+ flex: 1;
+ color: var(--n-title-text-color);
+ `),i("header-extra",`
+ display: flex;
+ align-items: center;
+ transition: color .3s var(--n-bezier);
+ color: var(--n-text-color);
+ `),m("collapse-item-arrow",`
+ display: flex;
+ transition:
+ transform .15s var(--n-bezier),
+ color .3s var(--n-bezier);
+ font-size: 18px;
+ color: var(--n-arrow-color);
+ `)])])]),pe=Object.assign(Object.assign({},k.props),{defaultExpandedNames:{type:[Array,String],default:null},expandedNames:[Array,String],arrowPlacement:{type:String,default:"left"},accordion:{type:Boolean,default:!1},displayDirective:{type:String,default:"if"},triggerAreas:{type:Array,default:()=>["main","extra","arrow"]},onItemHeaderClick:[Function,Array],"onUpdate:expandedNames":[Function,Array],onUpdateExpandedNames:[Function,Array],onExpandedNamesChange:{type:[Function,Array],validator:()=>!0,default:void 0}}),M=Q("n-collapse"),he=E({name:"Collapse",props:pe,slots:Object,setup(e,{slots:a}){const{mergedClsPrefixRef:r,inlineThemeDisabled:n,mergedRtlRef:d}=F(e),l=T(e.defaultExpandedNames),h=N(()=>e.expandedNames),x=se(h,l),w=k("Collapse","-collapse",ce,q,e,r);function c(p){const{"onUpdate:expandedNames":o,onUpdateExpandedNames:u,onExpandedNamesChange:y}=e;u&&$(u,p),o&&$(o,p),y&&$(y,p),l.value=p}function g(p){const{onItemHeaderClick:o}=e;o&&$(o,p)}function t(p,o,u){const{accordion:y}=e,{value:I}=x;if(y)p?(c([o]),g({name:o,expanded:!0,event:u})):(c([]),g({name:o,expanded:!1,event:u}));else if(!Array.isArray(I))c([o]),g({name:o,expanded:!0,event:u});else{const C=I.slice(),P=C.findIndex(z=>o===z);~P?(C.splice(P,1),c(C),g({name:o,expanded:!1,event:u})):(C.push(o),c(C),g({name:o,expanded:!0,event:u}))}}J(M,{props:e,mergedClsPrefixRef:r,expandedNamesRef:x,slots:a,toggleItem:t});const f=B("Collapse",d,r),R=N(()=>{const{common:{cubicBezierEaseInOut:p},self:{titleFontWeight:o,dividerColor:u,titlePadding:y,titleTextColor:I,titleTextColorDisabled:C,textColor:P,arrowColor:z,fontSize:j,titleFontSize:H,arrowColorDisabled:O,itemMargin:W}}=w.value;return{"--n-font-size":j,"--n-bezier":p,"--n-text-color":P,"--n-divider-color":u,"--n-title-padding":y,"--n-title-font-size":H,"--n-title-text-color":I,"--n-title-text-color-disabled":C,"--n-title-font-weight":o,"--n-arrow-color":z,"--n-arrow-color-disabled":O,"--n-item-margin":W}}),b=n?Z("collapse",void 0,R,e):void 0;return{rtlEnabled:f,mergedTheme:w,mergedClsPrefix:r,cssVars:n?void 0:R,themeClass:b?.themeClass,onRender:b?.onRender}},render(){var e;return(e=this.onRender)===null||e===void 0||e.call(this),s("div",{class:[`${this.mergedClsPrefix}-collapse`,this.rtlEnabled&&`${this.mergedClsPrefix}-collapse--rtl`,this.themeClass],style:this.cssVars},this.$slots)}}),ue=E({name:"CollapseItemContent",props:{displayDirective:{type:String,required:!0},show:Boolean,clsPrefix:{type:String,required:!0}},setup(e){return{onceTrue:oe(U(e,"show"))}},render(){return s(Y,null,{default:()=>{const{show:e,displayDirective:a,onceTrue:r,clsPrefix:n}=this,d=a==="show"&&r,l=s("div",{class:`${n}-collapse-item__content-wrapper`},s("div",{class:`${n}-collapse-item__content-inner`},this.$slots));return d?G(l,[[X,e]]):e?l:null}})}}),me={title:String,name:[String,Number],disabled:Boolean,displayDirective:String},ge=E({name:"CollapseItem",props:me,setup(e){const{mergedRtlRef:a}=F(e),r=ae(),n=te(()=>{var t;return(t=e.name)!==null&&t!==void 0?t:r}),d=ne(M);d||le("collapse-item","`n-collapse-item` must be placed inside `n-collapse`.");const{expandedNamesRef:l,props:h,mergedClsPrefixRef:x,slots:w}=d,c=N(()=>{const{value:t}=l;if(Array.isArray(t)){const{value:f}=n;return!~t.findIndex(R=>R===f)}else if(t){const{value:f}=n;return f!==t}return!0});return{rtlEnabled:B("Collapse",a,x),collapseSlots:w,randomName:r,mergedClsPrefix:x,collapsed:c,triggerAreas:U(h,"triggerAreas"),mergedDisplayDirective:N(()=>{const{displayDirective:t}=e;return t||h.displayDirective}),arrowPlacement:N(()=>h.arrowPlacement),handleClick(t){let f="main";_(t,"arrow")&&(f="arrow"),_(t,"extra")&&(f="extra"),h.triggerAreas.includes(f)&&d&&!e.disabled&&d.toggleItem(c.value,n.value,t)}}},render(){const{collapseSlots:e,$slots:a,arrowPlacement:r,collapsed:n,mergedDisplayDirective:d,mergedClsPrefix:l,disabled:h,triggerAreas:x}=this,w=S(a.header,{collapsed:n},()=>[this.title]),c=a["header-extra"]||e["header-extra"],g=a.arrow||e.arrow;return s("div",{class:[`${l}-collapse-item`,`${l}-collapse-item--${r}-arrow-placement`,h&&`${l}-collapse-item--disabled`,!n&&`${l}-collapse-item--active`,x.map(t=>`${l}-collapse-item--trigger-area-${t}`)]},s("div",{class:[`${l}-collapse-item__header`,!n&&`${l}-collapse-item__header--active`]},s("div",{class:`${l}-collapse-item__header-main`,onClick:this.handleClick},r==="right"&&w,s("div",{class:`${l}-collapse-item-arrow`,key:this.rtlEnabled?0:1,"data-arrow":!0},S(g,{collapsed:n},()=>[s(ee,{clsPrefix:l},{default:()=>this.rtlEnabled?s(ie,null):s(de,null)})])),r==="left"&&w),re(c,{collapsed:n},t=>s("div",{class:`${l}-collapse-item__header-extra`,onClick:this.handleClick,"data-extra":!0},t))),s(ue,{clsPrefix:l,displayDirective:d,show:!n},a))}});export{he as N,se as a,ge as b,_ as h,oe as u};

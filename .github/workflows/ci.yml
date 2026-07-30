@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: safeopsagent
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 matches the Kylin V11 target; 3.12 guards against drift.
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements-dev.txt
+
+      - name: Backend imports
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+        run: python -c "import backend.app; print('import-ok', backend.app.APP_VERSION)"
+
+      - name: Run test suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          MODEL_PROVIDER: offline_safe
+          MONITOR_SAMPLING_ENABLED: '0'
+        run: python -m pytest -q
+
+  security:
+    name: Security gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements-dev.txt
+
+      # The core claim of this project is that OS access cannot be bypassed.
+      # This gate turns that claim into a build-breaking check.
+      - name: Verify security invariants
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          MODEL_PROVIDER: offline_safe
+          MONITOR_SAMPLING_ENABLED: '0'
+        run: python scripts/verify_invariants.py --no-report
+
+      - name: Security adversarial benchmark
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          MODEL_PROVIDER: offline_safe
+        run: |
+          python scripts/run_security_benchmark.py > benchmark.json
+          python - <<'PY'
+          import json, sys
+          report = json.load(open('benchmark.json', encoding='utf-8'))
+          fp, fn = report['false_positive'], report['false_negative']
+          print(f"evaluated={report['evaluated_cases']} FP={fp} FN={fn} pass_rate={report['pass_rate']}")
+          if fp or fn:
+              sys.exit(f"security benchmark regression: FP={fp} FN={fn}")
+          PY
+
+      # Deliberately no grep-based shell=True / subprocess guard here: the
+      # AST checker above already proves INV-S1..INV-S5 and correctly excludes
+      # the checker's own docstrings and the tests that simulate unsafe input.
+      # A text grep would only re-assert it more weakly, with false positives.
+
+      - name: Secret scan
+        run: |
+          if grep -rEn "sk-[A-Za-z0-9]{16,}|gh[pous]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}" \
+               backend frontend/vue-console/src docs README.md .env.example; then
+            echo "::error::possible credential committed"; exit 1
+          fi
+          echo "no credentials found"
+
+  frontend:
+    name: Console build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # This check MUST run before the build: vite is configured with
+      # emptyOutDir + outDir=backend/static/console, so building first would
+      # overwrite the committed artifact and make this assertion tautological.
+      # The console is served from that committed build, so a stale artifact
+      # silently ships an older UI than the source.
+      - name: Committed console build must reflect current source
+        run: |
+          missing=0
+          for s in "智能化根因分析" "监控大盘" "学习基线" "本平台不适用"; do
+            if grep -rqF "$s" backend/static/console/assets; then
+              echo "  ok: $s"
+            else
+              echo "::error::committed console build is missing '$s' — run 'npm run build' and commit the result"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Install console dependencies
+        working-directory: safeopsagent/frontend/vue-console
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check and build console
+        working-directory: safeopsagent/frontend/vue-console
+        run: npm run build

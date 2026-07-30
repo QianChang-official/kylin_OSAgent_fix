@@ -1,0 +1,25 @@
+# SafeOpsAgent sudoers reference template
+# --------------------------------------
+# SafeOpsAgent is designed to run as the restricted opsagent user.
+# SafeExecutor already enforces a command allowlist, denylist, timeout, and
+# structured audit trail. The default deployment does not require sudoers.
+#
+# Read-only tools should run with normal user privileges whenever possible.
+# If an administrator decides to grant additional privileges, review every
+# command and every allowed argument according to least privilege principles,
+# then install a separately approved sudoers file with visudo.
+#
+# Risk groups for manual review:
+#   Low risk examples:
+#     # opsagent ALL=(root) NOPASSWD: /usr/bin/id "", /usr/bin/whoami "", /usr/bin/uname -a
+#
+#   Medium risk examples:
+#     # opsagent ALL=(root) NOPASSWD: /usr/bin/df -h, /usr/bin/ps aux, /usr/sbin/ss -lntp
+#
+#   High risk commands:
+#     # find, du, journalctl, systemctl
+#     # Do not grant broad root NOPASSWD access to these commands by default.
+#     # If they are absolutely required, constrain exact arguments manually and
+#     # validate the final file with: visudo -c -f /etc/sudoers.d/<file>
+#
+# This template intentionally contains no active sudo rule.

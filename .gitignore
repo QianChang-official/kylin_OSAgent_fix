@@ -32,7 +32,10 @@ safeopsagent/data/
 .vscode/
 .DS_Store
 
-# Local working notes, not part of the delivery
+# Local working notes, not part of the delivery.
+# Anchored to the repo root on purpose: a bare *.html would also swallow
+# backend/static/console/index.html and the vite entry point.
 .workbuddy/
-上下文压缩.txt
-*.html
+/上下文压缩.txt
+/SafeOpsAgent*.html
+/safeopsagent.zip

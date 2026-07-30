@@ -1,0 +1,920 @@
+"""FastAPI backend — REST API for SafeOpsAgent."""
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from typing import Optional, Any
+import json
+import threading
+import time
+import uuid
+from pathlib import Path
+
+from backend import config
+from backend.agent.orchestrator import CHAT_READONLY_TOOLS, AgentOrchestrator
+from backend.tools.registry import get_registry, ToolResult
+from backend.audit.logger import get_logger
+from backend.monitoring import get_monitoring_service
+from backend.osprobe.probe import run_probe
+from backend.security.guardrail import Guardrail
+from backend.security.rule_labels import flatten_rule_hits, label_rules
+from backend.llm.domestic_model_gateway import resolve_model_config
+
+# Register all tools
+from backend.tools import (
+    disk_usage,
+    process_list,
+    network_status,
+    large_file_scan,
+    journal_query,
+    port_tool,
+    memory_tool,
+    service_tool,
+    cpu_tool,
+    cleanup_tools,
+    config_drift_tool,
+    zombie_process_tool,
+    disk_io_tool,
+    impact_tool,
+)
+
+disk_usage.register()
+process_list.register()
+network_status.register()
+large_file_scan.register()
+journal_query.register()
+port_tool.register()
+memory_tool.register()
+service_tool.register()
+cpu_tool.register()
+cleanup_tools.register()
+config_drift_tool.register()
+zombie_process_tool.register()
+disk_io_tool.register()
+impact_tool.register()
+
+APP_VERSION = "1.3.0"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Start metric sampling only when the server actually runs.
+
+    Importing the app (tests, tooling) must not spawn background threads,
+    so this deliberately lives in lifespan rather than at module scope.
+    """
+    get_monitoring_service().start()
+    yield
+    get_monitoring_service().stop()
+
+
+app = FastAPI(title="SafeOpsAgent", version=APP_VERSION, lifespan=lifespan)
+CONSOLE_DIST_DIR = Path(__file__).resolve().parent / "static" / "console"
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Optional MCP SSE transport (requires mcp SDK, see backend/requirements-mcp.txt).
+# When the SDK is installed, MCP clients connect via /mcp/sse + /mcp/messages/.
+# When not installed, stdio transport still works and the FastAPI service is unaffected.
+try:
+    from backend.mcp_server import create_sse_server
+    app.mount("/mcp", create_sse_server())
+except Exception:
+    # MCP SDK not installed; SSE transport unavailable, stdio still works
+    pass
+
+# Shared state
+_orchestrator: Optional[AgentOrchestrator] = None
+_confirmations: dict[str, dict] = {}
+_confirmation_lock = threading.RLock()
+
+
+def get_orch() -> AgentOrchestrator:
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = AgentOrchestrator()
+    return _orchestrator
+
+
+class ChatRequest(BaseModel):
+    session_id: str = ""
+    message: str
+
+
+class ToolCallRequest(BaseModel):
+    tool_name: str
+    arguments: dict = Field(default_factory=dict)
+    session_id: str = ""
+
+
+class ToolConfirmRequest(BaseModel):
+    confirmation_token: str
+    session_id: str = ""
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "agent": "SafeOpsAgent", "version": APP_VERSION}
+
+
+def _console_response(asset_path: str = "") -> FileResponse:
+    """Serve the built Vue console with a fallback scoped to /console only."""
+    console_root = CONSOLE_DIST_DIR.resolve()
+    requested = (console_root / asset_path).resolve()
+    try:
+        requested.relative_to(console_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Console asset not found") from exc
+
+    if asset_path and requested.is_file():
+        return FileResponse(
+            requested,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
+    index_file = console_root / "index.html"
+    if not index_file.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail="Operations console has not been built",
+        )
+    return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
+
+
+def _favicon_response() -> FileResponse:
+    favicon_file = CONSOLE_DIST_DIR / "favicon.svg"
+    if not favicon_file.is_file():
+        raise HTTPException(status_code=404, detail="Favicon has not been built")
+    return FileResponse(
+        favicon_file,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+@app.head("/favicon.ico", include_in_schema=False)
+def favicon_root():
+    return _favicon_response()
+
+
+@app.get("/console/favicon.ico", include_in_schema=False)
+@app.head("/console/favicon.ico", include_in_schema=False)
+def favicon_console():
+    return _favicon_response()
+
+
+@app.get("/console", include_in_schema=False)
+def console_root():
+    return _console_response()
+
+
+@app.get("/console/{asset_path:path}", include_in_schema=False)
+def console_spa(asset_path: str):
+    return _console_response(asset_path)
+
+
+@app.get("/agent/status")
+def agent_status():
+    tools = get_registry().list_tools()
+    tool_names = {tool["name"] for tool in tools}
+    model_config = resolve_model_config()
+    model_metadata = model_config.public_metadata()
+    return {
+        "status": "online",
+        **model_metadata,
+        "configured_provider": model_metadata["model_provider"],
+        "guardrail_enabled": True,
+        "risk_scoring_enabled": True,
+        "audit_enabled": True,
+        "tools_count": len(tools),
+        "readonly_tools_count": len(tool_names.intersection(CHAT_READONLY_TOOLS)),
+        "security_summary": "安全护栏已启用，模型不能直接执行系统命令。",
+        "deployment_hint": "当前为用户态安全 Agent，不修改系统内核；无 API Key 时自动使用离线安全模式。",
+    }
+
+
+@app.get("/tools/list")
+def list_tools():
+    return {"tools": get_registry().list_tools()}
+
+
+@app.post("/tools/call")
+def call_tool(req: ToolCallRequest):
+    request_id = str(uuid.uuid4())[:8]
+    started = int(time.time() * 1000)
+    registry = get_registry()
+    guardrail = Guardrail()
+    available_tool_names = [tool["name"] for tool in registry.list_tools()]
+    rule_hits = {
+        "input": [],
+        "tool_selection": [],
+        "tool_args": [],
+        "tool_output": [],
+    }
+    risk_score = 10
+    risk_level = "low"
+    legacy_risk_level = 1
+    risk_factors = []
+    matched_rules = []
+    executed = False
+    execution_result: Any = None
+    tool_audit: dict = {}
+    security_decision = "allow"
+    security_reason = ""
+    error = ""
+    confirmation_token = None
+    dry_run_result = None
+    confirmation_events = []
+
+    def apply_risk(risk_assessment):
+        nonlocal risk_score, risk_level, legacy_risk_level
+        nonlocal risk_factors, matched_rules, security_decision
+        risk_score = risk_assessment.score
+        risk_level = risk_assessment.risk_level
+        legacy_risk_level = risk_assessment.legacy_risk_level
+        risk_factors = risk_assessment.factors
+        matched_rules = risk_assessment.matched_rules
+        security_decision = risk_assessment.security_decision
+
+    def finish(success: bool, result: Any = None):
+        nonlocal execution_result
+        duration = int(time.time() * 1000) - started
+        execution_result = result if result is not None else execution_result
+        readable_rule_labels = _rule_labels_for(matched_rules, rule_hits)
+        get_logger().log({
+            "session_id": req.session_id,
+            "request_id": request_id,
+            "user_input": _tool_call_text(req.tool_name, req.arguments),
+            "intent": "direct_tool_call",
+            "selected_tool": req.tool_name,
+            "tool_arguments": req.arguments,
+            "risk_level": legacy_risk_level,
+            "risk_score": risk_score,
+            "risk_level_text": risk_level,
+            "legacy_risk_level": legacy_risk_level,
+            "security_decision": security_decision,
+            "security_reason": security_reason,
+            "matched_rules": matched_rules,
+            "confirmation_required": security_decision == "confirm",
+            "executed": executed,
+            "actual_command": tool_audit.get("actual_command", []),
+            "executor_user": tool_audit.get("executor_user", ""),
+            "execution_success": tool_audit.get("execution_success", False),
+            "execution_result": execution_result or {},
+            "stdout_summary": tool_audit.get("stdout_summary", ""),
+            "stderr_summary": tool_audit.get("stderr_summary", ""),
+            "final_response": security_reason or security_decision if success else error,
+            "rule_hits": rule_hits,
+            "confirmation_events": confirmation_events,
+            "duration_ms": duration,
+        })
+        return {
+            "success": success,
+            "request_id": request_id,
+            "tool_name": req.tool_name,
+            "arguments": req.arguments,
+            "risk_level": risk_level,
+            "legacy_risk_level": legacy_risk_level,
+            "risk_score": risk_score,
+            "risk_band": risk_level,
+            "risk_factors": risk_factors,
+            "matched_rules": matched_rules,
+            "rule_labels": readable_rule_labels,
+            "security_decision": security_decision,
+            "security_reason": security_reason,
+            "confirmation_required": security_decision == "confirm",
+            "executed": executed,
+            "confirmation_token": confirmation_token,
+            "dry_run_result": dry_run_result,
+            "result": result,
+            "error": error,
+            "rule_hits": rule_hits,
+            "rule_labels": readable_rule_labels,
+        }
+
+    if not registry.get_schema(req.tool_name):
+        risk_assessment = guardrail.score_100(extra_factors=[f"tool_not_found:{req.tool_name}"])
+        apply_risk(risk_assessment)
+        security_reason = "blocked_tool_not_found"
+        error = f"Tool '{req.tool_name}' not found"
+        rule_hits["tool_selection"].append(f"tool_not_found:{req.tool_name}")
+        return finish(False)
+
+    valid, validation_error = registry.validate_args(req.tool_name, req.arguments)
+    if not valid:
+        risk_assessment = guardrail.score_100(
+            tool_name=req.tool_name,
+            arguments=req.arguments,
+            extra_factors=[f"schema_validation:{validation_error}"],
+        )
+        apply_risk(risk_assessment)
+        security_reason = "blocked_invalid_arguments"
+        error = validation_error
+        rule_hits["tool_args"].append(f"schema_validation:{validation_error}")
+        return finish(False)
+
+    input_check = guardrail.check_input(_tool_call_text(req.tool_name, req.arguments))
+    tool_check = guardrail.validate_tool_selection(req.tool_name, available_tool_names)
+    arg_check = guardrail.validate_tool_args(req.tool_name, req.arguments)
+    risk_assessment = guardrail.score_100(
+        input_check=input_check,
+        tool_check=tool_check,
+        arg_check=arg_check,
+        tool_name=req.tool_name,
+        arguments=req.arguments,
+    )
+    apply_risk(risk_assessment)
+    rule_hits["input"].extend(input_check.rule_hits)
+    rule_hits["tool_selection"].extend(tool_check.rule_hits)
+    rule_hits["tool_args"].extend(arg_check.rule_hits)
+
+    if security_decision != "allow":
+        security_reason = "confirmation_required" if security_decision == "confirm" else "blocked_by_guardrail"
+        if security_decision == "confirm":
+            dry_run_result = _build_dry_run_result(
+                req.tool_name,
+                req.arguments,
+                risk_score,
+                risk_level,
+                legacy_risk_level,
+                security_decision,
+                security_reason,
+                matched_rules,
+                risk_factors,
+            )
+            error = dry_run_result["message"]
+            confirmation_token = _create_confirmation(
+                request_id,
+                req.session_id,
+                req.tool_name,
+                req.arguments,
+                risk_score,
+                risk_level,
+                legacy_risk_level,
+                security_decision,
+                security_reason,
+                matched_rules,
+                risk_factors,
+                rule_hits,
+            )
+            confirmation_events.append("confirmation_requested")
+            return finish(False, dry_run_result)
+        error = "Tool call blocked by security guardrail"
+        return finish(False)
+
+    try:
+        tool_result = registry.call(req.tool_name, req.arguments)
+        executed = tool_result.status == "success"
+    except Exception as exc:
+        tool_audit.update({
+            "execution_success": False,
+            "stderr_summary": str(exc),
+        })
+        security_decision = "reject"
+        security_reason = "tool_exception"
+        error = str(exc)
+        execution_result = {"tool": req.tool_name, "status": "exception", "error": error}
+        return finish(False, execution_result)
+
+    result_payload = _tool_result_payload(tool_result)
+    tool_audit.update(_tool_audit_metadata(tool_result))
+    execution_result = result_payload
+    output_text = _tool_output_text(tool_result, result_payload)
+    output_check = guardrail.check_tool_output(output_text)
+    rule_hits["tool_output"].extend(output_check.rule_hits)
+    risk_assessment = guardrail.score_100(
+        input_check=input_check,
+        tool_check=tool_check,
+        arg_check=arg_check,
+        output_check=output_check,
+        tool_name=req.tool_name,
+        arguments=req.arguments,
+    )
+    apply_risk(risk_assessment)
+
+    if not output_check.passed:
+        security_decision = "reject"
+        security_reason = "blocked_tool_output"
+        error = "Tool output blocked by security guardrail"
+        return finish(False, result_payload)
+
+    security_decision = "allow"
+    security_reason = "executed"
+    success = tool_result.status == "success"
+    if not success:
+        error = tool_result.error or tool_result.status
+    return finish(success, result_payload)
+
+
+@app.post("/tools/confirm")
+def confirm_tool(req: ToolConfirmRequest):
+    request_id = str(uuid.uuid4())[:8]
+    started = int(time.time() * 1000)
+    registry = get_registry()
+    guardrail = Guardrail()
+    token_record, token_error = _consume_confirmation(req.confirmation_token)
+    confirmation_events = []
+    rule_hits = {
+        "input": [],
+        "tool_selection": [],
+        "tool_args": [],
+        "tool_output": [],
+    }
+    tool_audit: dict = {}
+    executed = False
+    execution_result: Any = {}
+    error = ""
+    security_reason = ""
+    original_request_id = token_record.get("original_request_id") if token_record else ""
+    tool_name = token_record.get("tool_name", "") if token_record else ""
+    arguments = token_record.get("arguments", {}) if token_record else {}
+    risk_score = token_record.get("risk_score", 100) if token_record else 100
+    risk_level = token_record.get("risk_level", "forbidden") if token_record else "forbidden"
+    legacy_risk_level = token_record.get("legacy_risk_level", 5) if token_record else 5
+    risk_factors = token_record.get("risk_factors", []) if token_record else []
+    matched_rules = token_record.get("matched_rules", []) if token_record else []
+    security_decision = "reject"
+
+    def finish(success: bool, result: Any = None):
+        nonlocal execution_result
+        duration = int(time.time() * 1000) - started
+        execution_result = result if result is not None else execution_result
+        readable_rule_labels = _rule_labels_for(matched_rules, rule_hits)
+        get_logger().log({
+            "session_id": req.session_id or (token_record or {}).get("session_id", ""),
+            "request_id": request_id,
+            "user_input": json.dumps(
+                {
+                    "confirmation_token_present": bool(req.confirmation_token),
+                    "original_request_id": original_request_id,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "intent": "confirm_tool_call",
+            "selected_tool": tool_name,
+            "tool_arguments": arguments,
+            "risk_level": legacy_risk_level,
+            "risk_score": risk_score,
+            "risk_level_text": risk_level,
+            "legacy_risk_level": legacy_risk_level,
+            "security_decision": security_decision,
+            "security_reason": security_reason,
+            "matched_rules": matched_rules,
+            "confirmation_required": False,
+            "executed": executed,
+            "actual_command": tool_audit.get("actual_command", []),
+            "executor_user": tool_audit.get("executor_user", ""),
+            "execution_success": tool_audit.get("execution_success", False),
+            "execution_result": execution_result or {},
+            "stdout_summary": tool_audit.get("stdout_summary", ""),
+            "stderr_summary": tool_audit.get("stderr_summary", ""),
+            "final_response": security_reason if success else error,
+            "rule_hits": rule_hits,
+            "confirmation_events": confirmation_events,
+            "original_request_id": original_request_id,
+            "duration_ms": duration,
+        })
+        return {
+            "success": success,
+            "request_id": request_id,
+            "original_request_id": original_request_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "risk_level": risk_level,
+            "legacy_risk_level": legacy_risk_level,
+            "risk_score": risk_score,
+            "risk_band": risk_level,
+            "risk_factors": risk_factors,
+            "matched_rules": matched_rules,
+            "rule_labels": readable_rule_labels,
+            "security_decision": security_decision,
+            "security_reason": security_reason,
+            "confirmation_required": False,
+            "executed": executed,
+            "result": result,
+            "error": error,
+            "rule_hits": rule_hits,
+            "rule_labels": readable_rule_labels,
+        }
+
+    if token_error:
+        security_reason = token_error
+        error = {
+            "confirmation_token_invalid": "Confirmation token not found or expired",
+            "confirmation_token_used": "Confirmation token has already been used",
+            "confirmation_token_expired": "Confirmation token has expired",
+            "confirmation_token_not_confirmable": "Confirmation token is not confirmable",
+        }[token_error]
+        return finish(False)
+
+    available_tool_names = [tool["name"] for tool in registry.list_tools()]
+    valid, validation_error = registry.validate_args(tool_name, arguments)
+    if not valid:
+        security_reason = "blocked_invalid_arguments"
+        error = validation_error
+        matched_rules = [*matched_rules, f"schema_validation:{validation_error}"]
+        rule_hits["tool_args"].append(f"schema_validation:{validation_error}")
+        return finish(False)
+
+    input_check = guardrail.check_input(_tool_call_text(tool_name, arguments))
+    tool_check = guardrail.validate_tool_selection(tool_name, available_tool_names)
+    arg_check = guardrail.validate_tool_args(tool_name, arguments)
+    reassessment = guardrail.score_100(
+        input_check=input_check,
+        tool_check=tool_check,
+        arg_check=arg_check,
+        tool_name=tool_name,
+        arguments=arguments,
+    )
+    risk_score = reassessment.score
+    risk_level = reassessment.risk_level
+    legacy_risk_level = reassessment.legacy_risk_level
+    risk_factors = reassessment.factors
+    matched_rules = reassessment.matched_rules
+    security_decision = reassessment.security_decision
+    rule_hits["input"].extend(input_check.rule_hits)
+    rule_hits["tool_selection"].extend(tool_check.rule_hits)
+    rule_hits["tool_args"].extend(arg_check.rule_hits)
+
+    if security_decision == "reject" or risk_level == "forbidden":
+        security_reason = "blocked_by_guardrail"
+        error = "Confirmed tool call became forbidden during revalidation"
+        return finish(False)
+
+    try:
+        tool_result = registry.call(tool_name, arguments)
+        executed = tool_result.status == "success"
+    except Exception as exc:
+        security_decision = "reject"
+        security_reason = "tool_exception"
+        error = str(exc)
+        tool_audit.update({
+            "execution_success": False,
+            "stderr_summary": str(exc),
+        })
+        return finish(False, {"tool": tool_name, "status": "exception", "error": error})
+
+    result_payload = _tool_result_payload(tool_result)
+    tool_audit.update(_tool_audit_metadata(tool_result))
+    output_text = _tool_output_text(tool_result, result_payload)
+    output_check = guardrail.check_tool_output(output_text)
+    rule_hits["tool_output"].extend(output_check.rule_hits)
+    reassessment = guardrail.score_100(
+        input_check=input_check,
+        tool_check=tool_check,
+        arg_check=arg_check,
+        output_check=output_check,
+        tool_name=tool_name,
+        arguments=arguments,
+    )
+    risk_score = reassessment.score
+    risk_level = reassessment.risk_level
+    legacy_risk_level = reassessment.legacy_risk_level
+    risk_factors = reassessment.factors
+    matched_rules = reassessment.matched_rules
+
+    if not output_check.passed:
+        security_decision = "reject"
+        security_reason = "blocked_tool_output"
+        error = "Tool output blocked by security guardrail"
+        return finish(False, result_payload)
+
+    confirmation_events.append("confirmation_approved")
+    security_decision = "allow"
+    security_reason = "confirmed_executed"
+    success = tool_result.status == "success"
+    if not success:
+        error = tool_result.error or tool_result.status
+    return finish(success, result_payload)
+
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    if not req.session_id:
+        req.session_id = str(uuid.uuid4())
+    if not req.message or len(req.message) > 2000:
+        raise HTTPException(status_code=400, detail="Invalid message")
+    result = get_orch().run(req.session_id, req.message)
+    result["session_id"] = req.session_id
+    return result
+
+
+def _tool_call_text(tool_name: str, arguments: dict) -> str:
+    return json.dumps(
+        {"tool_name": tool_name, "arguments": arguments},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _cleanup_confirmations(now: float | None = None, exclude_token: str = "") -> None:
+    with _confirmation_lock:
+        current = time.time() if now is None else now
+        expired_tokens = [
+            token
+            for token, record in _confirmations.items()
+            if token != exclude_token and record.get("expires_at", 0) < current
+        ]
+        for token in expired_tokens:
+            _confirmations.pop(token, None)
+
+
+def _consume_confirmation(token: str) -> tuple[dict | None, str]:
+    """Atomically validate and consume a one-time confirmation token."""
+    with _confirmation_lock:
+        now = time.time()
+        _cleanup_confirmations(now=now, exclude_token=token)
+        record = _confirmations.get(token)
+        if not record:
+            return None, "confirmation_token_invalid"
+        if record.get("used"):
+            return dict(record), "confirmation_token_used"
+        if record.get("expires_at", 0) < now:
+            _confirmations.pop(token, None)
+            return dict(record), "confirmation_token_expired"
+        if (
+            record.get("security_decision") != "confirm"
+            or record.get("risk_level") == "forbidden"
+            or record.get("risk_score", 0) >= 100
+        ):
+            record["used"] = True
+            record["used_at"] = now
+            return dict(record), "confirmation_token_not_confirmable"
+        record["used"] = True
+        record["used_at"] = now
+        return dict(record), ""
+
+
+def _create_confirmation(
+    original_request_id: str,
+    session_id: str,
+    tool_name: str,
+    arguments: dict,
+    risk_score: int,
+    risk_level: str,
+    legacy_risk_level: int,
+    security_decision: str,
+    security_reason: str,
+    matched_rules: list,
+    risk_factors: list,
+    rule_hits: dict,
+) -> str:
+    with _confirmation_lock:
+        _cleanup_confirmations()
+        token = uuid.uuid4().hex
+        now = time.time()
+        _confirmations[token] = {
+            "original_request_id": original_request_id,
+            "session_id": session_id,
+            "tool_name": tool_name,
+            "arguments": dict(arguments or {}),
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "legacy_risk_level": legacy_risk_level,
+            "security_decision": security_decision,
+            "security_reason": security_reason,
+            "matched_rules": list(matched_rules or []),
+            "risk_factors": list(risk_factors or []),
+            "rule_hits": dict(rule_hits or {}),
+            "created_at": now,
+            "expires_at": now + config.CONFIRMATION_TTL_SECONDS,
+            "used": False,
+        }
+        return token
+
+
+def _build_dry_run_result(
+    tool_name: str,
+    arguments: dict,
+    risk_score: int,
+    risk_level: str,
+    legacy_risk_level: int,
+    security_decision: str,
+    security_reason: str,
+    matched_rules: list,
+    risk_factors: list,
+) -> dict:
+    return {
+        "tool_name": tool_name,
+        "arguments": arguments,
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "legacy_risk_level": legacy_risk_level,
+        "security_decision": security_decision,
+        "security_reason": security_reason,
+        "matched_rules": matched_rules,
+        "risk_factors": risk_factors,
+        "message": "该操作需要人工确认，尚未执行。",
+    }
+
+
+def _tool_result_payload(tool_result: ToolResult) -> dict:
+    return {
+        "tool": tool_result.tool,
+        "status": tool_result.status,
+        "data": tool_result.data,
+        "raw_output": tool_result.raw_output,
+        "error": tool_result.error,
+    }
+
+
+def _tool_output_text(tool_result: ToolResult, payload: dict) -> str:
+    if tool_result.raw_output:
+        return tool_result.raw_output
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _tool_audit_metadata(tool_result: ToolResult) -> dict:
+    audit = dict(tool_result.audit or {})
+    if "execution_success" not in audit:
+        audit["execution_success"] = tool_result.status == "success"
+    if not audit.get("stdout_summary") and tool_result.raw_output:
+        audit["stdout_summary"] = tool_result.raw_output[:500]
+    if not audit.get("stderr_summary") and tool_result.error:
+        audit["stderr_summary"] = tool_result.error[:500]
+    return audit
+
+
+def _safe_limit(limit: int, default: int = 20, maximum: int = 100) -> int:
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(maximum, value))
+
+
+def _rule_labels_for(*sources: Any) -> list[str]:
+    return label_rules(*sources)
+
+
+def _risk_band_from_row(row: dict) -> str:
+    if row.get("risk_level_text"):
+        return str(row.get("risk_level_text"))
+    score = row.get("risk_score")
+    try:
+        numeric = int(score)
+    except (TypeError, ValueError):
+        numeric = 0
+    if numeric >= 100:
+        return "forbidden"
+    if numeric >= 70:
+        return "high"
+    if numeric >= 40:
+        return "medium"
+    return "low"
+
+
+def _summary_from_row(row: dict) -> str:
+    final_response = row.get("final_response") or ""
+    if final_response:
+        return str(final_response)[:500]
+    result = row.get("execution_result") or {}
+    if isinstance(result, dict):
+        error = result.get("error")
+        status = result.get("status")
+        if error:
+            return str(error)[:500]
+        if status:
+            return str(status)[:500]
+    if isinstance(result, list) and result:
+        return json.dumps(result[:3], ensure_ascii=False, default=str)[:500]
+    return ""
+
+
+def _execution_status_from_row(row: dict) -> str:
+    trace = row.get("full_trace_json") or {}
+    if isinstance(trace, dict):
+        for event in trace.get("events", []):
+            if event.get("stage") == "security_decision" and event.get("execution_status"):
+                return str(event.get("execution_status"))
+            if event.get("stage") == "tool_executed" and event.get("execution_status"):
+                return str(event.get("execution_status"))
+    if row.get("security_decision") == "reject":
+        return "blocked"
+    if row.get("executed"):
+        return "success" if row.get("execution_success") else "failed"
+    return "not_executed"
+
+
+def _friendly_audit_row(row: dict) -> dict:
+    friendly = dict(row)
+    friendly["created_at"] = row.get("timestamp", "")
+    friendly["agent_mode"] = _agent_mode_from_trace(row)
+    friendly["risk_band"] = _risk_band_from_row(row)
+    friendly["execution_status"] = _execution_status_from_row(row)
+    friendly["summary"] = _summary_from_row(row)
+    friendly["rule_labels"] = _rule_labels_for(
+        row.get("matched_rules", []),
+        flatten_rule_hits(row.get("rule_hits", [])),
+    )
+    friendly.setdefault("request_id", row.get("request_id", ""))
+    friendly.setdefault("user_input", row.get("user_input", ""))
+    friendly.setdefault("selected_tool", row.get("selected_tool", ""))
+    friendly.setdefault("security_decision", row.get("security_decision", ""))
+    return friendly
+
+
+def _agent_mode_from_trace(row: dict) -> str:
+    trace = row.get("full_trace_json") or {}
+    if isinstance(trace, dict):
+        for event in trace.get("events", []):
+            if event.get("stage") == "agent_planning" and event.get("agent_mode"):
+                return str(event.get("agent_mode"))
+    return "offline_safe"
+
+
+def _trace_timeline(payload: dict) -> list[dict]:
+    trace = payload.get("trace") if isinstance(payload, dict) else {}
+    audit = payload.get("audit") if isinstance(payload, dict) else {}
+    events = trace.get("events", []) if isinstance(trace, dict) else []
+    stages = {event.get("stage"): event for event in events if isinstance(event, dict)}
+    decision = (audit or {}).get("security_decision") or stages.get("security_decision", {}).get("security_decision")
+    execution_status = _execution_status_from_row(audit or {}) if audit else "not_returned"
+    return [
+        _timeline_item("接收请求", "completed" if "receive_input" in stages else "not_returned", "系统接收用户输入。"),
+        _timeline_item("安全检查", "blocked" if decision == "reject" else _stage_status(stages, "precheck"), "安全护栏完成风险预检。"),
+        _timeline_item("智能理解", _stage_status(stages, "agent_planning", skipped_if=decision == "reject"), "Agent 识别用户意图与模型规划来源。"),
+        _timeline_item("工具规划", _stage_status(stages, "tool_plan_created", skipped_if=decision == "reject"), "系统生成受控工具计划。"),
+        _timeline_item("执行状态", execution_status or "not_returned", "只读工具执行状态或阻断结果。"),
+        _timeline_item("保存记录", "completed" if "audit_saved" in stages else "not_returned", "审计记录已保存并可追溯。"),
+    ]
+
+
+def _timeline_item(title: str, status: str, description: str) -> dict:
+    return {"title": title, "status": status, "description": description}
+
+
+def _stage_status(stages: dict, name: str, skipped_if: bool = False) -> str:
+    if skipped_if:
+        return "skipped"
+    return "completed" if name in stages else "not_returned"
+
+
+@app.get("/audit/logs")
+def audit_logs(session_id: str = "", limit: int = 20):
+    logger = get_logger()
+    rows = logger.query(session_id=session_id, limit=_safe_limit(limit))
+    return {"logs": [_friendly_audit_row(row) for row in rows]}
+
+
+@app.get("/audit/trace/{request_id}")
+def audit_trace(request_id: str):
+    payload = get_logger().trace(request_id)
+    payload["timeline"] = _trace_timeline(payload)
+    return payload
+
+
+@app.post("/audit/clear")
+def audit_clear():
+    """Clear all audit data — use before demo."""
+    return get_logger().clear_all()
+
+
+@app.get("/system/probe")
+def system_probe():
+    cap = run_probe()
+    return {
+        "kernel": cap.kernel,
+        "os_release": cap.os_release,
+        "python_version": cap.python_version,
+        "available_commands": list(cap.cmd_paths.keys()),
+        "missing_commands": cap.unavailable,
+    }
+
+
+@app.get("/monitor/overview")
+def monitor_overview():
+    """Host facts, health verdict and sampler state for the dashboard header."""
+    return get_monitoring_service().overview()
+
+
+@app.get("/monitor/metrics")
+def monitor_metrics(points: int = 120):
+    """Metric time series with each metric's learned baseline."""
+    return get_monitoring_service().metrics_payload(points=_safe_limit(points, default=120, maximum=1000))
+
+
+@app.get("/monitor/anomalies")
+def monitor_anomalies():
+    """Current baseline deviations — learned per host, not fixed thresholds."""
+    return {"anomalies": get_monitoring_service().anomalies()}
+
+
+@app.post("/monitor/sample")
+def monitor_sample():
+    """Force an immediate sample. Read-only collection; no system mutation."""
+    return get_monitoring_service().sample_once()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("backend.app:app", host="127.0.0.1", port=8000, reload=True)
