@@ -5,6 +5,21 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(name: str, default: str = "") -> tuple[str, ...]:
+    return tuple(
+        item.strip().rstrip("/")
+        for item in os.environ.get(name, default).split(",")
+        if item.strip()
+    )
+
 # LLM
 MODEL_PROVIDER = os.environ.get("MODEL_PROVIDER", "").strip().lower()
 MODEL_API_BASE = os.environ.get("MODEL_API_BASE", "").strip().rstrip("/")
@@ -35,6 +50,36 @@ CONFIRMATION_TTL_SECONDS = int(os.environ.get("CONFIRMATION_TTL_SECONDS", "300")
 TOOL_RESULT_MAX_LINES = 50
 REQUEST_TIMEOUT = 30
 CPU_SAMPLE_INTERVAL_SECONDS = float(os.environ.get("CPU_SAMPLE_INTERVAL_SECONDS", "1.0"))
+
+# Console authentication. Disabled by default for the localhost-only demo;
+# deployments should enable it or place the service behind an authenticated
+# reverse proxy. Passwords are stored only as PBKDF2 verifier strings.
+CONSOLE_AUTH_ENABLED = _env_bool("CONSOLE_AUTH_ENABLED", False)
+CONSOLE_AUTH_USERNAME = os.environ.get("CONSOLE_AUTH_USERNAME", "").strip()
+CONSOLE_AUTH_PASSWORD_HASH = os.environ.get("CONSOLE_AUTH_PASSWORD_HASH", "").strip()
+CONSOLE_AUTH_SESSION_SECRET = os.environ.get("CONSOLE_AUTH_SESSION_SECRET", "")
+CONSOLE_AUTH_SESSION_TTL_SECONDS = int(
+    os.environ.get("CONSOLE_AUTH_SESSION_TTL_SECONDS", "3600")
+)
+CONSOLE_AUTH_SECURE_COOKIE = _env_bool("CONSOLE_AUTH_SECURE_COOKIE", False)
+CONSOLE_AUTH_COOKIE_NAME = "safeops_session"
+CONSOLE_LOGIN_ATTEMPT_LIMIT = int(os.environ.get("CONSOLE_LOGIN_ATTEMPT_LIMIT", "5"))
+CONSOLE_LOGIN_WINDOW_SECONDS = int(os.environ.get("CONSOLE_LOGIN_WINDOW_SECONDS", "60"))
+
+# The Vue console is same-origin in production. Only explicit development
+# origins receive cross-origin API access.
+CORS_ALLOWED_ORIGINS = tuple(
+    origin
+    for origin in _env_list(
+        "CORS_ALLOWED_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173",
+    )
+    if origin != "*"
+)
+
+# Completed Codex Security scans are imported read-only from this private,
+# external directory. The production backend never launches the scanner.
+CODEX_SECURITY_RESULTS_DIR = os.environ.get("CODEX_SECURITY_RESULTS_DIR", "").strip()
 
 # Audit
 AUDIT_DB_PATH = PROJECT_DIR / "data" / "audit.db"

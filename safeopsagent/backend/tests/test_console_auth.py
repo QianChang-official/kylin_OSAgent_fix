@@ -1,0 +1,159 @@
+import base64
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend import app as app_module
+from backend.security.console_auth import (
+    AuthConfigurationError,
+    ConsoleAuth,
+    generate_password_hash,
+    verify_password,
+)
+
+
+def _auth(clock, *, enabled=True, secret="s" * 48):
+    return ConsoleAuth(
+        enabled=enabled,
+        username="operator",
+        password_hash=generate_password_hash(
+            "correct horse battery staple",
+            iterations=200_000,
+            salt=b"fixed-test-salt",
+        ),
+        session_secret=secret,
+        session_ttl_seconds=120,
+        login_attempt_limit=2,
+        login_window_seconds=60,
+        clock=clock,
+    )
+
+
+def test_password_hash_round_trip_and_rejects_wrong_password():
+    encoded = generate_password_hash(
+        "safe password",
+        iterations=200_000,
+        salt=b"0123456789abcdef",
+    )
+
+    assert encoded.startswith("pbkdf2_sha256$200000$")
+    assert verify_password("safe password", encoded) is True
+    assert verify_password("wrong password", encoded) is False
+    assert verify_password("safe password", "not-a-valid-hash") is False
+
+
+def test_session_round_trip_csrf_tamper_and_expiry():
+    now = [1_700_000_000.0]
+    auth = _auth(lambda: now[0])
+
+    token, issued = auth.issue_session()
+    identity = auth.authenticate(token)
+
+    assert identity == issued
+    assert auth.verify_csrf(identity, issued.csrf_token) is True
+    assert auth.verify_csrf(identity, "wrong") is False
+
+    payload, signature = token.split(".", 1)
+    changed = ("A" if payload[0] != "A" else "B") + payload[1:]
+    assert auth.authenticate(f"{changed}.{signature}") is None
+
+    raw_signature = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
+    forged_signature = bytes([raw_signature[0] ^ 1]) + raw_signature[1:]
+    forged_text = base64.urlsafe_b64encode(forged_signature).rstrip(b"=").decode("ascii")
+    assert auth.authenticate(f"{payload}.{forged_text}") is None
+
+    now[0] += 121
+    assert auth.authenticate(token) is None
+
+
+def test_login_attempt_window_is_bounded():
+    now = [10_000.0]
+    auth = _auth(lambda: now[0])
+
+    assert auth.attempts_allowed("127.0.0.1") is True
+    auth.record_failed_attempt("127.0.0.1")
+    assert auth.attempts_allowed("127.0.0.1") is True
+    auth.record_failed_attempt("127.0.0.1")
+    assert auth.attempts_allowed("127.0.0.1") is False
+
+    now[0] += 61
+    assert auth.attempts_allowed("127.0.0.1") is True
+
+
+def test_enabled_auth_requires_complete_configuration():
+    auth = ConsoleAuth(
+        enabled=True,
+        username="operator",
+        password_hash="",
+        session_secret="short",
+    )
+
+    with pytest.raises(AuthConfigurationError):
+        auth.require_configuration()
+
+
+def test_disabled_auth_reports_local_identity_without_a_cookie():
+    auth = ConsoleAuth(
+        enabled=False,
+        username="",
+        password_hash="",
+        session_secret="",
+    )
+
+    identity = auth.authenticate("")
+    assert identity is not None
+    assert identity.username == "local"
+
+
+def test_auth_routes_issue_cookie_and_enforce_csrf(monkeypatch):
+    now = [1_700_000_000.0]
+    monkeypatch.setattr(app_module, "_console_auth", _auth(lambda: now[0]))
+    client = TestClient(app_module.app)
+
+    unauthenticated = client.get("/tools/list")
+    session = client.get("/auth/session")
+    failed_login = client.post(
+        "/auth/login",
+        json={"username": "operator", "password": "wrong"},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert session.json() == {
+        "enabled": True,
+        "authenticated": False,
+        "username": None,
+        "expires_at": None,
+        "csrf_token": None,
+    }
+    assert failed_login.status_code == 401
+
+    login = client.post(
+        "/auth/login",
+        json={"username": "operator", "password": "correct horse battery staple"},
+    )
+    body = login.json()
+
+    assert login.status_code == 200
+    assert body["enabled"] is True
+    assert body["authenticated"] is True
+    assert body["username"] == "operator"
+    assert isinstance(body["csrf_token"], str) and len(body["csrf_token"]) >= 24
+    assert "httponly" in login.headers["set-cookie"].lower()
+    assert client.get("/tools/list").status_code == 200
+
+    missing_csrf = client.post(
+        "/tools/call",
+        json={"tool_name": "get_memory_status", "arguments": {}},
+    )
+    with_csrf = client.post(
+        "/tools/call",
+        json={"tool_name": "get_memory_status", "arguments": {}},
+        headers={"X-CSRF-Token": body["csrf_token"]},
+    )
+
+    assert missing_csrf.status_code == 403
+    assert with_csrf.status_code == 200
+
+    logout = client.post("/auth/logout", headers={"X-CSRF-Token": body["csrf_token"]})
+    assert logout.status_code == 200
+    assert client.get("/tools/list").status_code == 401

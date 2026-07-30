@@ -25,12 +25,125 @@ export interface HealthResponse {
   version: string
 }
 
+export interface AuthSession {
+  enabled: boolean
+  authenticated: boolean
+  username: string | null
+  expires_at: number | null
+  csrf_token: string | null
+}
+
+export interface AuthCredentials {
+  username: string
+  password: string
+}
+
 export interface SystemProbe {
   kernel: string
   os_release: string
   python_version: string
   available_commands: string[]
   missing_commands: string[]
+}
+
+export interface SecuritySource {
+  name: string
+  url: string
+  usage: string
+}
+
+export interface CodexSecurityResource {
+  id: string
+  source: string
+  title: string
+  url: string
+  package: string
+  latest_version: string
+  summary: string
+  commands: string[]
+  safeops_usage: string[]
+}
+
+export interface AiToolCategory {
+  slug: string
+  name: string
+  url: string
+  safeops_usage: string
+  restricted?: boolean
+}
+
+export interface AiSecurityArticle {
+  id: number
+  title: string
+  url: string
+  topics: string[]
+  safeops_usage: string
+}
+
+export interface ProjectApplication {
+  area: string
+  controls: string[]
+  mapped_sources: string[]
+}
+
+export interface SecurityResources {
+  last_checked_at: string
+  sources: SecuritySource[]
+  codex_security: CodexSecurityResource
+  tool_categories: AiToolCategory[]
+  articles: AiSecurityArticle[]
+  project_applications: ProjectApplication[]
+  policy: {
+    restricted_category_count: number
+    summary: string
+  }
+}
+
+export interface AiSecurityIntelSource {
+  name: string
+  feed_url: string
+}
+
+export interface AiSecurityIntelItem {
+  title: string
+  description: string
+  published_at: string
+  article_url: string
+  mapping_rules: string[]
+  project_controls: string[]
+}
+
+export interface AiSecurityIntelResponse {
+  source: AiSecurityIntelSource
+  untrusted: boolean
+  automatic_model_ingestion: boolean
+  mapping_mode: string
+  item_count: number
+  items: AiSecurityIntelItem[]
+  delivery: 'network' | 'local_snapshot'
+  snapshot_used: boolean
+}
+
+export interface CodexScanTarget {
+  kind: string
+  display_name: string
+  revision: string
+}
+
+export interface CodexScanSummary {
+  directory_id: string
+  scan_id: string
+  completed_at: string
+  target: CodexScanTarget
+  coverage: string
+  finding_count: number
+  severity_counts: Record<string, number>
+  integrity_verified: boolean
+}
+
+export interface CodexScansResponse {
+  configured: boolean
+  scans: CodexScanSummary[]
 }
 
 export interface ToolPlanItem {
