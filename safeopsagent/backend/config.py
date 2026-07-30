@@ -20,6 +20,11 @@ def _env_list(name: str, default: str = "") -> tuple[str, ...]:
         if item.strip()
     )
 
+
+def _env_path(name: str, default: Path) -> Path:
+    value = os.environ.get(name, "").strip()
+    return Path(value) if value else default
+
 # LLM
 MODEL_PROVIDER = os.environ.get("MODEL_PROVIDER", "").strip().lower()
 MODEL_API_BASE = os.environ.get("MODEL_API_BASE", "").strip().rstrip("/")
@@ -116,8 +121,9 @@ HONEYPOT_HOSTNAME = os.environ.get("HONEYPOT_HOSTNAME", "kylin-app-07").strip()
 # Attribution evidence is append-only and stays on the local host. Enrichment
 # that would emit network traffic is opt-in so the default posture makes no
 # outbound connection and never signals the observed client.
-DECEPTION_EVIDENCE_DIR = Path(
-    os.environ.get("DECEPTION_EVIDENCE_DIR", str(PROJECT_DIR / "data" / "deception"))
+DECEPTION_EVIDENCE_DIR = _env_path(
+    "DECEPTION_EVIDENCE_DIR",
+    PROJECT_DIR / "data" / "deception",
 )
 DECEPTION_MAX_EVIDENCE_BYTES = int(
     os.environ.get("DECEPTION_MAX_EVIDENCE_BYTES", str(32 * 1024 * 1024))

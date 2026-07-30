@@ -74,6 +74,7 @@ impact_tool.register()
 
 APP_VERSION = "1.3.0"
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
+TOOL_EXECUTION_ERROR = "Tool execution failed"
 
 
 def _build_console_auth() -> ConsoleAuth:
@@ -615,15 +616,16 @@ def deception_incidents(limit: int = 50):
 def _console_response(asset_path: str = "") -> FileResponse:
     """Serve the built Vue console with a fallback scoped to /console only."""
     console_root = CONSOLE_DIST_DIR.resolve()
-    requested = (console_root / asset_path).resolve()
+    # CodeQL does not model the resolve + relative_to containment check below.
+    requested = (console_root / asset_path).resolve()  # lgtm[py/path-injection]
     try:
         requested.relative_to(console_root)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Console asset not found") from exc
 
-    if asset_path and requested.is_file():
-        return FileResponse(
-            requested,
+    if asset_path and requested.is_file():  # lgtm[py/path-injection]
+        return FileResponse(  # lgtm[py/path-injection]
+            requested,  # lgtm[py/path-injection]
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
@@ -932,13 +934,14 @@ def call_tool(req: ToolCallRequest):
         tool_result = registry.call(req.tool_name, req.arguments)
         executed = tool_result.status == "success"
     except Exception as exc:
+        exception_type = type(exc).__name__
         tool_audit.update({
             "execution_success": False,
-            "stderr_summary": str(exc),
+            "stderr_summary": f"{exception_type}: internal tool failure",
         })
         security_decision = "reject"
         security_reason = "tool_exception"
-        error = str(exc)
+        error = TOOL_EXECUTION_ERROR
         execution_result = {"tool": req.tool_name, "status": "exception", "error": error}
         return finish(False, execution_result)
 
@@ -1112,12 +1115,13 @@ def confirm_tool(req: ToolConfirmRequest):
         tool_result = registry.call(tool_name, arguments)
         executed = tool_result.status == "success"
     except Exception as exc:
+        exception_type = type(exc).__name__
         security_decision = "reject"
         security_reason = "tool_exception"
-        error = str(exc)
+        error = TOOL_EXECUTION_ERROR
         tool_audit.update({
             "execution_success": False,
-            "stderr_summary": str(exc),
+            "stderr_summary": f"{exception_type}: internal tool failure",
         })
         return finish(False, {"tool": tool_name, "status": "exception", "error": error})
 

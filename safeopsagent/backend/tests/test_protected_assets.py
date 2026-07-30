@@ -37,6 +37,15 @@ def test_audit_database_and_evidence_are_protected_by_default():
     assert service._is_protected_asset(Path(config.BASE_DIR) / "static" / "console" / "index.html") is True
 
 
+def test_empty_evidence_directory_uses_the_safe_default(monkeypatch):
+    monkeypatch.setenv("DECEPTION_EVIDENCE_DIR", "")
+
+    assert config._env_path(
+        "DECEPTION_EVIDENCE_DIR",
+        config.PROJECT_DIR / "data" / "deception",
+    ) == config.PROJECT_DIR / "data" / "deception"
+
+
 def test_unrelated_temporary_paths_stay_eligible(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PROTECTED_ASSET_PATHS", (tmp_path / "keep",))
 

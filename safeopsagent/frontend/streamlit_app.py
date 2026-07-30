@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import os
+import time
 import uuid
+from http.cookiejar import Cookie
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import streamlit as st
@@ -14,6 +18,9 @@ import streamlit as st
 API_BASE = os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 REQUEST_TIMEOUT = 10.0
 MISSING = "暂无数据"
+SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
+PUBLIC_AUTH_PATHS = {"/auth/gate", "/auth/login", "/auth/session"}
+AUTH_RESPONSE_PATHS = {"/auth/login", "/auth/logout", "/auth/session"}
 
 PAGES = ["工作台", "智能诊断", "安全中心", "工具能力"]
 
@@ -241,10 +248,144 @@ def init_state() -> None:
         "selected_trace_request_id": "",
         "trace_result": None,
         "show_all_records": False,
+        "backend_cookies": [],
+        "backend_auth_session": None,
+        "backend_csrf_token": "",
+        "backend_auth_error": "",
+        "backend_entry_affordance_count": 0,
+        "backend_entry_prompt_open": False,
+        "backend_entry_unlocked": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _backend_uses_loopback_http() -> bool:
+    parsed = urlsplit(API_BASE)
+    if parsed.scheme.lower() != "http" or not parsed.hostname:
+        return False
+    if parsed.hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _stored_backend_cookies() -> httpx.Cookies:
+    cookies = httpx.Cookies()
+    records = st.session_state.get("backend_cookies", [])
+    if not isinstance(records, list):
+        return cookies
+    for record in records:
+        if not isinstance(record, dict) or not record.get("name") or not record.get("value"):
+            continue
+        try:
+            transport_record = dict(record)
+            # These cookies never reach the browser. A production Streamlit
+            # process talks to the backend over a private loopback hop even
+            # when the browser-facing proxy correctly requires Secure cookies.
+            if transport_record.get("secure") and _backend_uses_loopback_http():
+                transport_record["secure"] = False
+            cookies.jar.set_cookie(Cookie(**transport_record))
+        except (TypeError, ValueError):
+            continue
+    return cookies
+
+
+def _has_valid_backend_cookie(name: str) -> bool:
+    now = time.time()
+    records = st.session_state.get("backend_cookies", [])
+    if not isinstance(records, list):
+        return False
+    for record in records:
+        if not isinstance(record, dict) or record.get("name") != name or not record.get("value"):
+            continue
+        expires = record.get("expires")
+        try:
+            if expires is None or float(expires) > now:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _remember_backend_cookies(client: httpx.Client) -> None:
+    """Persist backend cookies inside this server-side Streamlit session."""
+    existing = st.session_state.get("backend_cookies", [])
+    secure_by_identity = {
+        (record.get("name"), record.get("domain"), record.get("path")): bool(record.get("secure"))
+        for record in existing
+        if isinstance(record, dict)
+    } if isinstance(existing, list) else {}
+    st.session_state.backend_cookies = [
+        {
+            "version": cookie.version,
+            "name": cookie.name,
+            "value": cookie.value,
+            "port": cookie.port,
+            "port_specified": cookie.port_specified,
+            "domain": cookie.domain,
+            "domain_specified": cookie.domain_specified,
+            "domain_initial_dot": cookie.domain_initial_dot,
+            "path": cookie.path,
+            "path_specified": cookie.path_specified,
+            "secure": cookie.secure or secure_by_identity.get(
+                (cookie.name, cookie.domain, cookie.path),
+                False,
+            ),
+            "expires": cookie.expires,
+            "discard": cookie.discard,
+            "comment": cookie.comment,
+            "comment_url": cookie.comment_url,
+            "rest": dict(getattr(cookie, "_rest", {})),
+            "rfc2109": cookie.rfc2109,
+        }
+        for cookie in client.cookies.jar
+        if cookie.name and cookie.value and not cookie.is_expired()
+    ]
+
+
+def _remember_auth_payload(path: str, payload: dict[str, Any]) -> None:
+    if path not in AUTH_RESPONSE_PATHS:
+        return
+    csrf_token = payload.get("csrf_token")
+    st.session_state.backend_csrf_token = csrf_token if isinstance(csrf_token, str) else ""
+    if path in {"/auth/login", "/auth/session", "/auth/logout"}:
+        st.session_state.backend_auth_session = payload
+
+
+def _clear_operator_state() -> None:
+    st.session_state.last_chat_result = None
+    st.session_state.last_validation_result = None
+    st.session_state.last_request_id = ""
+    st.session_state.selected_trace_request_id = ""
+    st.session_state.trace_result = None
+
+
+def _invalidate_backend_auth(*, clear_cookies: bool = False) -> None:
+    st.session_state.backend_auth_session = None
+    st.session_state.backend_csrf_token = ""
+    if clear_cookies:
+        st.session_state.backend_cookies = []
+        st.session_state.backend_entry_unlocked = False
+    _clear_operator_state()
+
+
+def _response_error(response: httpx.Response, payload: dict[str, Any]) -> str:
+    detail = payload.get("detail")
+    if response.status_code == 401:
+        return "登录状态已失效或凭据未通过验证。"
+    if response.status_code == 403:
+        return "当前会话无权执行该请求，或安全校验已失效。"
+    if response.status_code == 429:
+        return "尝试次数过多，请稍后再试。"
+    if response.status_code == 503:
+        return "后端认证尚未完成配置。"
+    if isinstance(detail, str) and detail and response.status_code < 500:
+        return detail
+    return "服务返回异常，请确认后端正在运行且接口可用。"
 
 
 def api_request(
@@ -255,20 +396,37 @@ def api_request(
     params: dict[str, Any] | None = None,
     timeout: float = REQUEST_TIMEOUT,
 ) -> tuple[bool, dict[str, Any], str]:
+    normalized_method = method.upper()
+    headers: dict[str, str] = {}
+    csrf_token = st.session_state.get("backend_csrf_token", "")
+    if normalized_method not in SAFE_HTTP_METHODS and isinstance(csrf_token, str) and csrf_token:
+        headers["X-CSRF-Token"] = csrf_token
     try:
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(
+            timeout=timeout,
+            cookies=_stored_backend_cookies(),
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
             response = client.request(
-                method,
+                normalized_method,
                 f"{API_BASE}{path}",
                 json=json_body,
                 params=params,
+                headers=headers,
             )
+            _remember_backend_cookies(client)
         try:
             payload = response.json()
         except Exception:
             payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
         if response.status_code >= 400:
-            return False, payload, "服务返回异常，请确认后端正在运行且接口可用。"
+            if response.status_code in {401, 403} and path not in PUBLIC_AUTH_PATHS:
+                _invalidate_backend_auth(clear_cookies=response.status_code == 401)
+            return False, payload, _response_error(response, payload)
+        _remember_auth_payload(path, payload)
         return True, payload, ""
     except httpx.ConnectError:
         return False, {}, "无法连接到 SafeOpsAgent 后端服务，请确认后端已启动。"
@@ -276,6 +434,60 @@ def api_request(
         return False, {}, "诊断请求未完成，请稍后重试或检查后端服务状态。"
     except Exception:
         return False, {}, "请求未完成，请确认服务状态后重试。"
+
+
+def fetch_auth_session() -> tuple[bool, dict[str, Any], str]:
+    ok, payload, error = api_request("GET", "/auth/session", timeout=4)
+    if not ok:
+        return False, payload, error
+    if not isinstance(payload.get("enabled"), bool) or not isinstance(payload.get("authenticated"), bool):
+        _invalidate_backend_auth()
+        return False, {}, "后端返回了无效的认证状态。"
+    if payload["enabled"] and not payload["authenticated"]:
+        _clear_operator_state()
+        if (
+            st.session_state.get("backend_entry_unlocked")
+            and not _has_valid_backend_cookie("safeops_stage")
+        ):
+            st.session_state.backend_entry_unlocked = False
+            st.session_state.backend_entry_prompt_open = False
+    return True, payload, ""
+
+
+def submit_entry_passphrase(passphrase: str) -> tuple[bool, str]:
+    ok, payload, error = api_request(
+        "POST",
+        "/auth/gate",
+        json_body={"passphrase": passphrase},
+        timeout=8,
+    )
+    if not ok or payload.get("unlocked") is not True:
+        return False, error or "入口口令未通过验证。"
+    return True, ""
+
+
+def sign_in(username: str, password: str) -> tuple[bool, str]:
+    ok, payload, error = api_request(
+        "POST",
+        "/auth/login",
+        json_body={"username": username, "password": password},
+        timeout=12,
+    )
+    if not ok or payload.get("authenticated") is not True:
+        return False, error or "登录未完成。"
+    st.session_state.backend_auth_session = payload
+    st.session_state.backend_auth_error = ""
+    return True, ""
+
+
+def sign_out() -> tuple[bool, str]:
+    ok, _, error = api_request("POST", "/auth/logout", json_body={}, timeout=8)
+    # Backend sessions are cookie based. Clear the Streamlit-side copy even if
+    # the token already expired or the backend became unreachable.
+    _invalidate_backend_auth(clear_cookies=True)
+    if not ok:
+        st.session_state.backend_auth_error = f"本地会话已清除；{error}"
+    return ok, error
 
 
 def agent_status() -> tuple[bool, dict[str, Any], str]:
@@ -492,10 +704,99 @@ def info_card(title: str, body: str, *, tone: str = "info") -> None:
             st.info(body)
 
 
+def _register_entry_affordance_click() -> None:
+    clicks = int(st.session_state.get("backend_entry_affordance_count", 0)) + 1
+    st.session_state.backend_entry_affordance_count = clicks
+    if clicks >= 3:
+        st.session_state.backend_entry_prompt_open = True
+        st.session_state.backend_entry_affordance_count = 0
+
+
+def render_login() -> None:
+    st.markdown(
+        """
+        <div class="hero-shell">
+          <div class="hero-kicker">SafeOpsAgent</div>
+          <div class="hero-title">安全运维控制台</div>
+          <div class="hero-copy">请使用后端配置的运维凭据登录。</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write("")
+    left, center, right = st.columns([1, 1.2, 1])
+    del left, right
+    with center:
+        if st.button("SafeOpsAgent", key="backend_entry_affordance"):
+            _register_entry_affordance_click()
+
+        if (
+            st.session_state.get("backend_entry_prompt_open")
+            and not st.session_state.get("backend_entry_unlocked")
+        ):
+            with st.form("backend_entry_gate_form", clear_on_submit=True):
+                entry_passphrase = st.text_input("运维口令", type="password")
+                entry_submitted = st.form_submit_button("确认", use_container_width=True)
+            if entry_submitted and entry_passphrase.strip():
+                with st.spinner("正在验证..."):
+                    unlocked, _ = submit_entry_passphrase(entry_passphrase)
+                if unlocked:
+                    st.session_state.backend_entry_unlocked = True
+                    st.session_state.backend_entry_prompt_open = False
+                    st.rerun()
+                    return
+
+        with st.container(border=True):
+            st.subheader("控制台登录")
+            auth_error = st.session_state.get("backend_auth_error", "")
+            if isinstance(auth_error, str) and auth_error:
+                st.error(auth_error)
+            with st.form("backend_login_form", clear_on_submit=True):
+                username = st.text_input("管理员账号")
+                password = st.text_input("管理员密码", type="password")
+                submitted = st.form_submit_button("登录", use_container_width=True)
+            if submitted:
+                if not username or not password:
+                    st.session_state.backend_auth_error = "请输入管理员账号和密码。"
+                    st.error(st.session_state.backend_auth_error)
+                    return
+                with st.spinner("正在验证..."):
+                    authenticated, error = sign_in(username, password)
+                if authenticated:
+                    st.rerun()
+                    return
+                st.session_state.backend_auth_error = error
+                st.error(error)
+
+
+def require_backend_session() -> bool:
+    ok, session, error = fetch_auth_session()
+    if not ok:
+        st.error(error)
+        if st.button("重新连接后端"):
+            st.rerun()
+        return False
+    st.session_state.backend_auth_session = session
+    if session.get("enabled") is False or session.get("authenticated") is True:
+        st.session_state.backend_auth_error = ""
+        return True
+    render_login()
+    return False
+
+
 def render_sidebar() -> None:
     with st.sidebar:
         st.subheader("SafeOpsAgent")
         st.caption("安全运维代理")
+        auth_session = st.session_state.get("backend_auth_session")
+        if isinstance(auth_session, dict) and auth_session.get("enabled"):
+            username = auth_session.get("username")
+            if isinstance(username, str) and username:
+                st.caption(f"登录用户：{username}")
+            if st.button("注销", use_container_width=True, key="backend_logout"):
+                sign_out()
+                st.rerun()
+        st.divider()
         ok, status, error = agent_status()
         if ok:
             st.success("后端状态：在线")
@@ -1108,6 +1409,13 @@ def render_current_page() -> None:
         render_tool_center()
 
 
-init_state()
-render_sidebar()
-render_current_page()
+def main() -> None:
+    init_state()
+    if not require_backend_session():
+        return
+    render_sidebar()
+    render_current_page()
+
+
+if __name__ == "__main__":
+    main()

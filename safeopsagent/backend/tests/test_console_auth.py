@@ -1,6 +1,7 @@
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ from backend.security.console_auth import (
     generate_password_hash,
     verify_password,
 )
+from scripts import hash_console_password
 
 
 def _auth(clock, *, enabled=True, secret="s" * 48):
@@ -42,6 +44,28 @@ def test_password_hash_round_trip_and_rejects_wrong_password():
     assert verify_password("safe password", encoded) is True
     assert verify_password("wrong password", encoded) is False
     assert verify_password("safe password", "not-a-valid-hash") is False
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ([], "CONSOLE_AUTH_PASSWORD_HASH=pbkdf2_sha256$600000$salt$digest"),
+        (["--entry-gate"], "CONSOLE_ENTRY_GATE_HASH=pbkdf2_sha256$600000$salt$digest"),
+        (["--value-only"], "pbkdf2_sha256$600000$salt$digest"),
+    ],
+)
+def test_hash_console_password_output_modes(monkeypatch, capsys, arguments, expected):
+    answers = iter(["secret", "secret"])
+    monkeypatch.setattr(hash_console_password.getpass, "getpass", lambda _prompt: next(answers))
+    monkeypatch.setattr(
+        hash_console_password,
+        "generate_password_hash",
+        lambda _secret: "pbkdf2_sha256$600000$salt$digest",
+    )
+    monkeypatch.setattr(sys, "argv", ["hash_console_password.py", *arguments])
+
+    assert hash_console_password.main() == 0
+    assert capsys.readouterr().out.strip() == expected
 
 
 def test_session_round_trip_csrf_tamper_and_expiry():

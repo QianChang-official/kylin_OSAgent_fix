@@ -191,7 +191,7 @@ def test_tools_call_guardrail_blocks_before_execution(monkeypatch):
 
 def test_tools_call_tool_exception_is_structured(monkeypatch):
     def boom(name, args):
-        raise RuntimeError("tool exploded")
+        raise RuntimeError("secret backend path: C:/private/tool.py")
 
     monkeypatch.setattr(get_registry(), "call", boom)
 
@@ -202,7 +202,8 @@ def test_tools_call_tool_exception_is_structured(monkeypatch):
     assert body["success"] is False
     assert body["security_decision"] == "reject"
     assert body["security_reason"] == "tool_exception"
-    assert body["error"] == "tool exploded"
+    assert body["error"] == "Tool execution failed"
+    assert "private" not in str(body)
 
 
 def test_tools_call_output_guardrail_blocks(monkeypatch):

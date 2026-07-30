@@ -15,6 +15,7 @@ invisible to the source and adds no request latency.
 from __future__ import annotations
 
 import hashlib
+import hmac
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from typing import Iterable, Mapping, Sequence
@@ -153,22 +154,24 @@ def _is_trusted(candidate: str, trusted_networks: Sequence) -> bool:
 def _forwarded_candidates(headers: Mapping[str, str]) -> tuple[str, ...]:
     """Collect the forwarded chain, left to right, as the proxy reported it."""
     raw = headers.get("x-forwarded-for") or headers.get("X-Forwarded-For") or ""
-    hops = [_normalize_ip(part) for part in str(raw).split(",")]
-    chain = tuple(hop for hop in hops if hop)[:MAX_FORWARDED_HOPS]
+    parts = str(raw).rsplit(",", MAX_FORWARDED_HOPS)
+    hops = [_normalize_ip(part) for part in parts[-MAX_FORWARDED_HOPS:]]
+    chain = tuple(hop for hop in hops if hop)
     if chain:
         return chain
 
     # RFC 7239 form: for=192.0.2.1;proto=https
     forwarded = headers.get("forwarded") or headers.get("Forwarded") or ""
     collected: list[str] = []
-    for element in str(forwarded).split(","):
+    elements = str(forwarded).rsplit(",", MAX_FORWARDED_HOPS)
+    for element in elements[-MAX_FORWARDED_HOPS:]:
         for directive in element.split(";"):
             key, _, value = directive.partition("=")
             if key.strip().lower() == "for":
                 candidate = _normalize_ip(value.strip().strip('"'))
                 if candidate:
                     collected.append(candidate)
-    return tuple(collected)[:MAX_FORWARDED_HOPS]
+    return tuple(collected)
 
 
 def _lower_headers(headers: Mapping[str, str]) -> dict[str, str]:
@@ -249,14 +252,18 @@ def is_automated_agent(user_agent: str) -> bool:
     return any(token in text for token in AUTOMATION_AGENT_TOKENS)
 
 
-def credential_digest(secret: str, salt: bytes) -> str:
-    """Return a short, salted digest of a submitted password.
+def credential_digest(secret: str, key: bytes) -> str:
+    """Return a short, keyed digest of a submitted password.
 
     Attempted passwords are valuable evidence (they reveal which wordlist is in
     use) but storing them in cleartext would create a fresh liability: they are
-    frequently real credentials reused from elsewhere. Only a salted digest
+    frequently real credentials reused from elsewhere. Only a keyed digest
     prefix is retained, which supports "same password retried" correlation
-    without ever recording a usable secret.
+    without ever recording a usable secret or enabling offline guessing.
     """
-    digest = hashlib.sha256(salt + str(secret).encode("utf-8", "replace"))
+    digest = hmac.new(
+        key,
+        str(secret).encode("utf-8", "replace"),
+        hashlib.sha256,
+    )
     return digest.hexdigest()[:16]

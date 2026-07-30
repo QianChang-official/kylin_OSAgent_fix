@@ -136,6 +136,28 @@ def test_tools_confirm_valid_token_executes_once(monkeypatch):
     assert called["count"] == 1
 
 
+def test_tools_confirm_does_not_expose_execution_exception(monkeypatch):
+    _force_confirm(monkeypatch)
+    initial = client.post(
+        "/tools/call",
+        json={"tool_name": "get_memory_status", "arguments": {}},
+    ).json()
+
+    def explode(name, args):
+        raise RuntimeError("secret backend path: /srv/private/tool.py")
+
+    monkeypatch.setattr(get_registry(), "call", explode)
+    body = client.post(
+        "/tools/confirm",
+        json={"confirmation_token": initial["confirmation_token"]},
+    ).json()
+
+    assert body["success"] is False
+    assert body["security_reason"] == "tool_exception"
+    assert body["error"] == "Tool execution failed"
+    assert "private" not in str(body)
+
+
 def test_tools_confirm_concurrent_replay_executes_once(monkeypatch):
     _force_confirm(monkeypatch)
     called = {"count": 0}

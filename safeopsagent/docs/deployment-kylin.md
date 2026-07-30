@@ -179,7 +179,7 @@ bash scripts/offline-smoke-test.sh
 
 - 使用脚本自身路径定位项目根目录。
 - 创建 `/opt/safeopsagent/data`；仅该数据目录和 `/var/log/safeopsagent` 归 `opsagent:opsagent`，安装根、代码和虚拟环境均保持 `root:root` 所有。
-- 每次安装都删除并重建 `/opt/safeopsagent/venv`，且通过其绝对路径调用 Python/pip，不加载 `activate`，避免特权升级复用服务账号可能篡改的环境；安装脚本必须从解压后的交付树运行，不能从 `/opt/safeopsagent` 自身运行。
+- 每次安装都在 `/opt/safeopsagent` 下的临时 staging 目录中重建虚拟环境并完成依赖安装，全程通过绝对路径调用 Python/pip，不加载 `activate`；只有 staging 完整后才短暂停止服务并激活新版本，启动或健康检查失败时自动恢复旧版本、systemd unit 和原服务状态。安装脚本必须从解压后的交付树运行，不能从 `/opt/safeopsagent` 自身运行。
 - 首次安装时交互生成 PBKDF2 密码校验串和随机会话密钥，再创建 `/etc/safeops-agent/env.conf`；已有文件不会覆盖，但认证配置不完整或不符合强度约束时会失败关闭。
 - 安装 systemd service 文件。
 - 默认只启用并启动 `safeops-agent.service`；Vue 控制台由该 FastAPI 服务同源托管。

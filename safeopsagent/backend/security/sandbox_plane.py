@@ -585,10 +585,42 @@ def synthetic_response(
             "executed": False,
             "result": None,
         }
-    if route in {"/security/resources", "/security/integrations"}:
-        return 200, {"sources": [], "tool_categories": [], "articles": [], "project_applications": []}
+    if route == "/security/resources":
+        return 200, {
+            "last_checked_at": "2026-07-30",
+            "sources": [],
+            "codex_security": {
+                "id": "openai-codex-security",
+                "source": "OpenAI",
+                "title": "Codex Security",
+                "url": "https://github.com/openai/codex-security",
+                "package": "@openai/codex-security",
+                "pinned_version": "0.1.4",
+                "summary": "Isolated scan-host integration with read-only result import.",
+                "commands": [],
+                "safeops_usage": [],
+            },
+            "tool_categories": [],
+            "articles": [],
+            "project_applications": [],
+            "policy": {
+                "restricted_category_count": 0,
+                "summary": "External material is treated as untrusted defensive reference.",
+            },
+        }
+    if route == "/security/integrations":
+        return 200, {"integrations": [], "external_content_policy": {}}
     if route == "/security/intel/aisecurity":
-        return 200, {"items": [], "sources": [], "generated_at": ""}
+        return 200, {
+            "source": {"name": "AI Security feed", "feed_url": ""},
+            "untrusted": True,
+            "automatic_model_ingestion": False,
+            "mapping_mode": "deterministic_local_keywords",
+            "item_count": 0,
+            "items": [],
+            "delivery": "local_snapshot",
+            "snapshot_used": True,
+        }
     if route.startswith("/security/codex/scans"):
         return 200, {"scans": [], "configured": False, "results_dir": ""}
 

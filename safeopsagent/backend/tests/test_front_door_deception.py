@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from backend import app as app_module
 from backend import config
-from backend.security.client_identity import resolve_client
+from backend.security.client_identity import credential_digest, resolve_client
 from backend.security.console_auth import (
     AttemptLimiter,
     ConsoleAuth,
@@ -186,6 +186,15 @@ def test_sandbox_session_never_reaches_a_real_handler(gated_client, monkeypatch)
     assert chat.status_code == 200
     assert chat.json()["security_decision"] == "allow"
 
+    resources = gated_client.get("/security/resources").json()
+    assert resources["codex_security"]["title"] == "Codex Security"
+    assert resources["policy"]["restricted_category_count"] == 0
+
+    intel = gated_client.get("/security/intel/aisecurity").json()
+    assert intel["source"]["name"] == "AI Security feed"
+    assert intel["items"] == []
+    assert intel["automatic_model_ingestion"] is False
+
 
 def test_sandbox_cannot_clear_the_real_audit_trail(gated_client):
     for index in range(3):
@@ -289,6 +298,44 @@ def test_forwarded_headers_are_ignored_from_an_untrusted_peer():
     assert spoofed.proxy_trusted is False
     assert proxied.source_ip == "203.0.113.44"
     assert proxied.proxy_trusted is True
+
+
+def test_long_forwarded_chain_retains_hops_closest_to_trusted_proxy():
+    forged = [f"198.51.100.{index}" for index in range(1, 21)]
+    actual = "203.0.113.44"
+    trusted = "10.0.0.5"
+    x_forwarded_for = ", ".join([*forged, actual, trusted])
+    forwarded = ", ".join(
+        [*(f"for={candidate}" for candidate in forged), f"for={actual}", f"for={trusted}"]
+    )
+
+    from_xff = resolve_client(
+        trusted,
+        {"x-forwarded-for": x_forwarded_for},
+        ["10.0.0.0/8"],
+    )
+    from_forwarded = resolve_client(
+        trusted,
+        {"forwarded": forwarded},
+        ["10.0.0.0/8"],
+    )
+
+    assert from_xff.source_ip == actual
+    assert from_forwarded.source_ip == actual
+    assert len(from_xff.forwarded_chain) <= 16
+    assert len(from_forwarded.forwarded_chain) <= 16
+
+
+def test_credential_digest_is_keyed_and_does_not_reveal_secret():
+    secret = "reused-real-password"
+    first = credential_digest(secret, b"a" * 32)
+    repeated = credential_digest(secret, b"a" * 32)
+    other_key = credential_digest(secret, b"b" * 32)
+
+    assert first == repeated
+    assert first != other_key
+    assert secret not in first
+    assert len(first) == 16
 
 
 def test_evidence_survives_an_unwritable_directory(tmp_path, monkeypatch):

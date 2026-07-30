@@ -13,7 +13,7 @@ active identification of the observed host: those would be unreliable against a
 proxied attacker and are not the operator's to perform. Optional reverse-DNS
 enrichment is the single outbound lookup available, and it is off by default.
 
-Submitted passwords are never stored. Only a salted digest prefix is kept, which
+Submitted passwords are never stored. Only a keyed digest prefix is kept, which
 is enough to correlate "the same password was retried" without turning the
 evidence file into a credential dump — attempted passwords are frequently real
 secrets reused from elsewhere.
@@ -189,7 +189,7 @@ class DeceptionEngine:
         self._lock = threading.RLock()
         self._sources: dict[str, SourceDossier] = {}
         self._sandbox_owner: dict[str, str] = {}
-        self._credential_salt = secrets.token_bytes(16)
+        self._credential_key = secrets.token_bytes(32)
         self._reverse_dns_cache: dict[str, str] = {}
         self._evidence_error = ""
 
@@ -209,7 +209,7 @@ class DeceptionEngine:
             self._track(dossier.usernames, str(username)[:128])
             self._track(
                 dossier.credential_digests,
-                credential_digest(password, self._credential_salt),
+                credential_digest(password, self._credential_key),
             )
             self._append_activity(dossier, "login_failure", {"username": str(username)[:128]})
             snapshot = dossier.to_dict()

@@ -200,7 +200,7 @@ onMounted(load)
         </div>
 
         <div class="detail-block">
-          <h3>口令摘要 <small>共 {{ active.distinct_passwords }} 个不同口令，仅保留加盐摘要，不存明文</small></h3>
+          <h3>口令摘要 <small>共 {{ active.distinct_passwords }} 个不同口令，仅保留密钥摘要，不存明文</small></h3>
           <div class="chip-row">
             <code v-for="digest in active.credential_digests.slice(0, 8)" :key="digest">{{ digest }}</code>
             <span v-if="!active.credential_digests.length" class="muted">无</span>

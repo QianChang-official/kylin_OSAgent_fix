@@ -22,6 +22,11 @@ def main() -> int:
         action="store_true",
         help="Generate the concealed entry-gate passphrase verifier instead of the login password.",
     )
+    parser.add_argument(
+        "--value-only",
+        action="store_true",
+        help="Print only the verifier value for installer integration.",
+    )
     args = parser.parse_args()
 
     label = "Entry gate passphrase" if args.entry_gate else "Console password"
@@ -33,7 +38,11 @@ def main() -> int:
         print("Entries do not match.", file=sys.stderr)
         return 1
     try:
-        print(f"{variable}={generate_password_hash(secret)}")
+        verifier = generate_password_hash(secret)
+        output = verifier if args.value_only else f"{variable}={verifier}"
+        # The secret has been replaced by a salted 600k-round PBKDF2 verifier;
+        # CodeQL does not model generate_password_hash as a sanitizer.
+        print(output)  # lgtm[py/clear-text-logging-sensitive-data]
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
