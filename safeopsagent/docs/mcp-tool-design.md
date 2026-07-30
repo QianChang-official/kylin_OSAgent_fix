@@ -6,8 +6,8 @@
 
 ```text
 当前项目已经具备 MCP-style Tool Registry + HTTP 工具发现与调用接口。
-当前提供基于官方 Python SDK 的 MCP stdio 最小子集，用作可选协议入口适配层。
-当前不声明支持 MCP SSE 或 Streamable HTTP transport。
+当前提供基于官方 Python SDK 的 MCP stdio 入口，以及挂载在 FastAPI `/mcp` 下的可选 SSE 入口。
+HTTP MCP 只能复用主服务的 Cookie、CSRF 与 CORS 边界；独立无认证 SSE 服务失败关闭。
 当前不声明为完整生产级 MCP 平台；只有在安装可选 SDK 后，才运行真实 stdio initialize、tools/list 和 tools/call 互操作测试。
 ```
 

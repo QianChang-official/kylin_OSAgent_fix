@@ -1,11 +1,13 @@
 """FastAPI backend — REST API for SafeOpsAgent."""
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Any
+import hmac
 import json
 import threading
 import time
@@ -19,11 +21,17 @@ from backend.audit.logger import get_logger
 from backend.monitoring import get_monitoring_service
 from backend.osprobe.probe import run_probe
 from backend.security.codex_results import CodexResultError, CodexResultStore
+from backend.security.client_identity import ClientIdentity, resolve_client
 from backend.security.console_auth import (
+    AttemptLimiter,
     AuthConfigurationError,
     ConsoleAuth,
     ConsoleIdentity,
+    EntryGate,
+    SandboxIdentity,
 )
+from backend.security.deception import get_deception_engine
+from backend.security.sandbox_plane import SANDBOX_USERNAME, synthetic_response
 from backend.security.guardrail import Guardrail
 from backend.security.ai_resources import security_resources_payload
 from backend.security.rule_labels import flatten_rule_hits, label_rules
@@ -66,6 +74,7 @@ impact_tool.register()
 
 APP_VERSION = "1.3.0"
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
+TOOL_EXECUTION_ERROR = "Tool execution failed"
 
 
 def _build_console_auth() -> ConsoleAuth:
@@ -77,10 +86,38 @@ def _build_console_auth() -> ConsoleAuth:
         session_ttl_seconds=config.CONSOLE_AUTH_SESSION_TTL_SECONDS,
         login_attempt_limit=config.CONSOLE_LOGIN_ATTEMPT_LIMIT,
         login_window_seconds=config.CONSOLE_LOGIN_WINDOW_SECONDS,
+        login_attempt_key_limit=config.CONSOLE_LOGIN_ATTEMPT_KEY_LIMIT,
     )
 
 
 _console_auth = _build_console_auth()
+
+
+def _build_entry_gate(auth: ConsoleAuth) -> EntryGate:
+    """Build the concealed entry gate, signed with a dedicated subkey.
+
+    The gate is inert unless a passphrase verifier is configured, which keeps a
+    default deployment on the familiar single-factor login.
+    """
+    return EntryGate(
+        passphrase_hash=config.CONSOLE_ENTRY_GATE_HASH,
+        signing_key=auth.entry_gate_subkey() if auth.sandbox_capable else b"",
+        ttl_seconds=config.CONSOLE_ENTRY_GATE_TTL_SECONDS,
+        attempt_limit=config.CONSOLE_ENTRY_GATE_ATTEMPT_LIMIT,
+        window_seconds=config.CONSOLE_ENTRY_GATE_WINDOW_SECONDS,
+    )
+
+
+_entry_gate = _build_entry_gate(_console_auth)
+
+# Flood budget for the public decoy form. Separate from both the entry gate and
+# the credential login so that hammering the decoy can never exhaust the
+# operator's allowance at the real entrance.
+_decoy_limiter = AttemptLimiter(
+    limit=config.HONEYPOT_DECOY_ATTEMPT_LIMIT,
+    window_seconds=config.HONEYPOT_DECOY_WINDOW_SECONDS,
+    key_limit=config.CONSOLE_LOGIN_ATTEMPT_KEY_LIMIT,
+)
 
 
 @asynccontextmanager
@@ -110,8 +147,23 @@ async def enforce_console_auth(request: Request, call_next):
     except AuthConfigurationError:
         return _auth_error(503, "Console authentication is not configured")
 
+    client = _resolve_client(request)
+    if (
+        not _console_auth.enabled
+        and not config.CONSOLE_AUTH_ALLOW_INSECURE_NON_LOOPBACK
+        and not _is_loopback_address(client.peer_ip)
+    ):
+        # Deliberately keyed on the transport peer: a trusted proxy forwarding a
+        # loopback address must not unlock an unauthenticated console.
+        return _auth_error(403, "Disabled authentication is restricted to loopback clients")
+
     identity = _request_identity(request)
     if identity is None:
+        # A deception session never reaches a real handler. It is answered here,
+        # from fabricated data, and the attempt is recorded as evidence.
+        sandbox = _sandbox_identity(request)
+        if sandbox is not None:
+            return await _sandbox_reply(request, client, sandbox)
         return _auth_error(401, "Authentication required")
     if (
         _console_auth.enabled
@@ -120,6 +172,7 @@ async def enforce_console_auth(request: Request, call_next):
     ):
         return _auth_error(403, "CSRF validation failed")
     request.state.console_identity = identity
+    request.scope["safeops.console_auth_enforced"] = True
     return await call_next(request)
 
 
@@ -137,8 +190,8 @@ app.add_middleware(
 # When the SDK is installed, MCP clients connect via /mcp/sse + /mcp/messages/.
 # When not installed, stdio transport still works and the FastAPI service is unaffected.
 try:
-    from backend.mcp_server import create_sse_server
-    app.mount("/mcp", create_sse_server())
+    from backend.mcp_server import mount_sse_server
+    mount_sse_server(app)
 except Exception:
     # MCP SDK not installed; SSE transport unavailable, stdio still works
     pass
@@ -177,6 +230,10 @@ class AuthCredentials(BaseModel):
     password: str = Field(min_length=1, max_length=512)
 
 
+class EntryPassphrase(BaseModel):
+    passphrase: str = Field(min_length=1, max_length=512)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "agent": "SafeOpsAgent", "version": APP_VERSION}
@@ -186,7 +243,7 @@ def _is_public_route(path: str) -> bool:
     return (
         path == "/health"
         or path == "/favicon.ico"
-        or path in {"/auth/session", "/auth/login"}
+        or path in {"/auth/session", "/auth/login", "/auth/gate"}
         or path == "/console"
         or path.startswith("/console/")
     )
@@ -204,10 +261,98 @@ def _request_identity(request: Request) -> ConsoleIdentity | None:
     return _console_auth.authenticate(token)
 
 
+def _sandbox_identity(request: Request) -> SandboxIdentity | None:
+    """Resolve a deception session from the same cookie name as a real session.
+
+    Sharing the cookie name denies a client any local signal about which kind of
+    session it holds; the two are separated cryptographically instead.
+    """
+    token = request.cookies.get(config.CONSOLE_AUTH_COOKIE_NAME, "")
+    return _console_auth.authenticate_sandbox(token)
+
+
+def _resolve_client(request: Request) -> ClientIdentity:
+    peer = request.client.host if request.client and request.client.host else ""
+    return resolve_client(peer, request.headers, config.CONSOLE_TRUSTED_PROXIES)
+
+
 def _client_key(request: Request) -> str:
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    return _resolve_client(request).rate_limit_key
+
+
+def _is_loopback_address(value: str) -> bool:
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return value.casefold() == "localhost"
+
+
+async def _sandbox_reply(
+    request: Request,
+    client: ClientIdentity,
+    sandbox: SandboxIdentity,
+) -> JSONResponse:
+    """Answer a sandboxed request from fabricated data and record the attempt."""
+    method = request.method.upper()
+    path = request.url.path
+
+    if method not in SAFE_HTTP_METHODS and not hmac.compare_digest(
+        sandbox.csrf_token,
+        request.headers.get("X-CSRF-Token", ""),
+    ):
+        # Mirrors the real console so the sandbox behaves identically.
+        return _auth_error(403, "CSRF validation failed")
+
+    body: dict[str, Any] = {}
+    if method == "POST":
+        try:
+            parsed = await request.json()
+            if isinstance(parsed, dict):
+                body = parsed
+        except Exception:
+            body = {}
+
+    engine = get_deception_engine()
+    detail: dict[str, Any] = {}
+    if body.get("tool_name"):
+        detail["tool_name"] = str(body["tool_name"])[:64]
+    if body.get("message"):
+        detail["message"] = str(body["message"])[:200]
+    engine.record_sandbox_activity(client, sandbox.session_id, method, path, detail)
+
+    if path == "/auth/logout":
+        response = JSONResponse(
+            {
+                "enabled": True,
+                "authenticated": False,
+                "username": None,
+                "expires_at": None,
+                "csrf_token": None,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+        _clear_auth_cookie(response)
+        return response
+
+    status_code, payload = synthetic_response(
+        sandbox.session_id,
+        method,
+        path,
+        dict(request.query_params),
+        body,
+    )
+    return JSONResponse(status_code=status_code, content=payload, headers={"Cache-Control": "no-store"})
+
+
+def _sandbox_session_payload(sandbox: SandboxIdentity) -> dict[str, Any]:
+    """Present a deception session as an ordinary authenticated session."""
+    return {
+        "enabled": True,
+        "authenticated": True,
+        "username": SANDBOX_USERNAME,
+        "expires_at": sandbox.expires_at,
+        "csrf_token": sandbox.csrf_token,
+    }
 
 
 def _auth_session_payload(identity: ConsoleIdentity | None = None) -> dict[str, Any]:
@@ -222,13 +367,17 @@ def _auth_session_payload(identity: ConsoleIdentity | None = None) -> dict[str, 
 
 
 def _clear_auth_cookie(response: JSONResponse) -> None:
-    response.delete_cookie(
+    for cookie_name in (
         config.CONSOLE_AUTH_COOKIE_NAME,
-        path="/",
-        secure=config.CONSOLE_AUTH_SECURE_COOKIE,
-        httponly=True,
-        samesite="strict",
-    )
+        config.CONSOLE_ENTRY_GATE_COOKIE_NAME,
+    ):
+        response.delete_cookie(
+            cookie_name,
+            path="/",
+            secure=config.CONSOLE_AUTH_SECURE_COOKIE,
+            httponly=True,
+            samesite="strict",
+        )
 
 
 def _audit_auth_event(request: Request, event: str, decision: str, reason: str) -> None:
@@ -258,8 +407,87 @@ def auth_session(request: Request):
         _console_auth.require_configuration()
     except AuthConfigurationError as exc:
         raise HTTPException(status_code=503, detail="Console authentication is not configured") from exc
-    response = JSONResponse(_auth_session_payload(_request_identity(request)))
+
+    identity = _request_identity(request)
+    if identity is None:
+        sandbox = _sandbox_identity(request)
+        if sandbox is not None:
+            response = JSONResponse(_sandbox_session_payload(sandbox))
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+    response = JSONResponse(_auth_session_payload(identity))
     response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/auth/gate", include_in_schema=False)
+def auth_gate(request: Request, submission: EntryPassphrase):
+    """Verify the concealed entry passphrase and open the operator login.
+
+    Passing the gate grants no console access on its own: it only makes the
+    credential login reachable. Failures are rate limited and recorded, so
+    probing the gate is itself evidence.
+    """
+    client = _resolve_client(request)
+    engine = get_deception_engine()
+
+    if not _entry_gate.enabled:
+        # Nothing to pass. Reported as a plain rejection so an unconfigured
+        # deployment does not advertise that a gate exists.
+        return _auth_error(404, "Not Found")
+
+    if not _entry_gate.reserve_attempt(client.rate_limit_key):
+        engine.record_gate_failure(client, reason="gate_rate_limited")
+        _audit_auth_event(request, "console_entry_gate", "reject", "gate_rate_limited")
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many attempts"},
+            headers={
+                "Cache-Control": "no-store",
+                "Retry-After": str(config.CONSOLE_ENTRY_GATE_WINDOW_SECONDS),
+            },
+        )
+
+    if not _entry_gate.verify_passphrase(submission.passphrase):
+        engine.record_gate_failure(client, reason="invalid_passphrase")
+        _audit_auth_event(request, "console_entry_gate", "reject", "invalid_passphrase")
+        return _auth_error(404, "Not Found")
+
+    _entry_gate.clear_attempts(client.rate_limit_key)
+    _audit_auth_event(request, "console_entry_gate", "allow", "gate_passed")
+    response = JSONResponse({"unlocked": True}, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        config.CONSOLE_ENTRY_GATE_COOKIE_NAME,
+        _entry_gate.issue_token(),
+        max_age=_entry_gate.ttl_seconds,
+        path="/",
+        secure=config.CONSOLE_AUTH_SECURE_COOKIE,
+        httponly=True,
+        samesite="strict",
+    )
+    return response
+
+
+def _open_sandbox_session(request: Request, client: ClientIdentity) -> JSONResponse:
+    """Hand a persistent guesser a deception session that looks like success."""
+    engine = get_deception_engine()
+    token, sandbox = _console_auth.issue_sandbox_session(config.HONEYPOT_SESSION_TTL_SECONDS)
+    engine.record_sandbox_opened(client, sandbox.session_id)
+    _audit_auth_event(request, "console_login", "reject", "deception_session_opened")
+    response = JSONResponse(
+        _sandbox_session_payload(sandbox),
+        headers={"Cache-Control": "no-store"},
+    )
+    response.set_cookie(
+        config.CONSOLE_AUTH_COOKIE_NAME,
+        token,
+        max_age=_console_auth.session_ttl_seconds,
+        path="/",
+        secure=config.CONSOLE_AUTH_SECURE_COOKIE,
+        httponly=True,
+        samesite="strict",
+    )
     return response
 
 
@@ -276,8 +504,55 @@ def auth_login(request: Request, credentials: AuthCredentials):
             headers={"Cache-Control": "no-store"},
         )
 
-    client_key = _client_key(request)
-    if not _console_auth.attempts_allowed(client_key):
+    client = _resolve_client(request)
+    client_key = client.rate_limit_key
+    engine = get_deception_engine()
+    gate_token = request.cookies.get(config.CONSOLE_ENTRY_GATE_COOKIE_NAME, "")
+    gate_passed = _entry_gate.verify_token(gate_token) if _entry_gate.enabled else True
+
+    if not gate_passed:
+        # Decoy path, metered against its own budget. Flooding the public form
+        # must not consume the operator's allowance at the real entrance, so the
+        # limits below only bound abuse — reaching the honeypot is the intended
+        # outcome, not an error.
+        if not _decoy_limiter.reserve(client_key):
+            engine.record_login_failure(
+                client,
+                credentials.username,
+                credentials.password,
+                reason="decoy_rate_limited",
+            )
+            _audit_auth_event(request, "console_login", "reject", "decoy_rate_limited")
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many login attempts"},
+                headers={
+                    "Cache-Control": "no-store",
+                    "Retry-After": str(_decoy_limiter.window_seconds),
+                },
+            )
+        # The credential verifier is still executed and its result discarded, so
+        # the decoy is indistinguishable from the real login by response timing.
+        # Correct credentials presented here cannot grant access, and are
+        # flagged: they imply the operator password leaked.
+        credentials_matched = _console_auth.verify_credentials(
+            credentials.username,
+            credentials.password,
+        )
+        reason = "valid_credentials_without_gate" if credentials_matched else "decoy_login_failure"
+        engine.record_login_failure(client, credentials.username, credentials.password, reason=reason)
+        _audit_auth_event(request, "console_login", "reject", reason)
+        if engine.should_open_sandbox(client) and _console_auth.sandbox_capable:
+            return _open_sandbox_session(request, client)
+        return _auth_error(401, "Invalid username or password")
+
+    if not _console_auth.reserve_attempt(client_key):
+        engine.record_login_failure(
+            client,
+            credentials.username,
+            credentials.password,
+            reason="login_rate_limited",
+        )
         _audit_auth_event(request, "console_login", "reject", "login_rate_limited")
         return JSONResponse(
             status_code=429,
@@ -287,12 +562,14 @@ def auth_login(request: Request, credentials: AuthCredentials):
                 "Retry-After": str(_console_auth.login_window_seconds),
             },
         )
+
     if not _console_auth.verify_credentials(credentials.username, credentials.password):
-        _console_auth.record_failed_attempt(client_key)
+        engine.record_login_failure(client, credentials.username, credentials.password)
         _audit_auth_event(request, "console_login", "reject", "invalid_credentials")
         return _auth_error(401, "Invalid username or password")
 
     _console_auth.clear_attempts(client_key)
+    engine.record_login_success(client, credentials.username)
     token, identity = _console_auth.issue_session()
     response = JSONResponse(
         _auth_session_payload(identity),
@@ -323,18 +600,32 @@ def auth_logout(request: Request):
     return response
 
 
+@app.get("/security/deception/incidents", include_in_schema=False)
+def deception_incidents(limit: int = 50):
+    """Attribution dossiers for front-door activity. Requires a real session."""
+    engine = get_deception_engine()
+    bounded = _safe_limit(limit, default=50, maximum=500)
+    return {
+        "summary": engine.summary(),
+        "gate_enabled": _entry_gate.enabled,
+        "sources": engine.dossiers(bounded),
+        "recent_evidence": engine.read_evidence(bounded),
+    }
+
+
 def _console_response(asset_path: str = "") -> FileResponse:
     """Serve the built Vue console with a fallback scoped to /console only."""
     console_root = CONSOLE_DIST_DIR.resolve()
-    requested = (console_root / asset_path).resolve()
+    # CodeQL does not model the resolve + relative_to containment check below.
+    requested = (console_root / asset_path).resolve()  # lgtm[py/path-injection]
     try:
         requested.relative_to(console_root)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Console asset not found") from exc
 
-    if asset_path and requested.is_file():
-        return FileResponse(
-            requested,
+    if asset_path and requested.is_file():  # lgtm[py/path-injection]
+        return FileResponse(  # lgtm[py/path-injection]
+            requested,  # lgtm[py/path-injection]
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
@@ -439,10 +730,17 @@ def _codex_result_store() -> CodexResultStore | None:
 def codex_security_scans(limit: int = 20):
     store = _codex_result_store()
     if store is None:
-        return {"configured": False, "scans": []}
+        return {
+            "configured": False,
+            "scans": [],
+            "discovery_limited": False,
+            "discovery_limit_reasons": [],
+            "entries_examined": 0,
+        }
+    page = store.list_scans_page(limit=_safe_limit(limit, default=20, maximum=100))
     return {
         "configured": True,
-        "scans": store.list_scans(limit=_safe_limit(limit, default=20, maximum=100)),
+        **page,
     }
 
 
@@ -636,13 +934,14 @@ def call_tool(req: ToolCallRequest):
         tool_result = registry.call(req.tool_name, req.arguments)
         executed = tool_result.status == "success"
     except Exception as exc:
+        exception_type = type(exc).__name__
         tool_audit.update({
             "execution_success": False,
-            "stderr_summary": str(exc),
+            "stderr_summary": f"{exception_type}: internal tool failure",
         })
         security_decision = "reject"
         security_reason = "tool_exception"
-        error = str(exc)
+        error = TOOL_EXECUTION_ERROR
         execution_result = {"tool": req.tool_name, "status": "exception", "error": error}
         return finish(False, execution_result)
 
@@ -816,12 +1115,13 @@ def confirm_tool(req: ToolConfirmRequest):
         tool_result = registry.call(tool_name, arguments)
         executed = tool_result.status == "success"
     except Exception as exc:
+        exception_type = type(exc).__name__
         security_decision = "reject"
         security_reason = "tool_exception"
-        error = str(exc)
+        error = TOOL_EXECUTION_ERROR
         tool_audit.update({
             "execution_success": False,
-            "stderr_summary": str(exc),
+            "stderr_summary": f"{exception_type}: internal tool failure",
         })
         return finish(False, {"tool": tool_name, "status": "exception", "error": error})
 

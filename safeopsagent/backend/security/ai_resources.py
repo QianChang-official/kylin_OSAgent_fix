@@ -16,22 +16,22 @@ OPENAI_CODEX_SECURITY = {
     "title": "@openai/codex-security",
     "url": "https://github.com/openai/codex-security",
     "package": "@openai/codex-security",
-    "latest_version": "0.1.4",
+    "pinned_version": "0.1.4",
     "summary": (
         "OpenAI official TypeScript SDK and CLI for repository security scans. "
-        "SafeOpsAgent integrates it as an auditable, opt-in scan adapter."
+        "SafeOpsAgent runs the pinned package only on an authorized external scan host "
+        "and imports sealed results read-only."
     ),
     "commands": [
-        "npx @openai/codex-security --version",
-        "npx @openai/codex-security scan . --dry-run",
-        "npx @openai/codex-security scan . --path backend --knowledge-base docs --output-dir ../safeopsagent-security-results",
-        "npx @openai/codex-security export ../safeopsagent-security-results --export-format sarif --output ../safeopsagent-results.sarif",
+        "cd integrations/codex-security",
+        "npm ci --ignore-scripts",
+        "npm run scan -- --repository /path/to/safeopsagent --output-dir /private/results/scan-id --dry-run",
     ],
     "safeops_usage": [
-        "run dry-run preflight during demos without requiring credentials",
+        "run local preflight on a supported x64/arm64 scan host without credentials",
         "scan only repositories the operator owns or is authorized to assess",
         "store reports outside the scanned repository and review before sharing",
-        "feed project docs or threat models through --knowledge-base for context-aware review",
+        "import only completed, hash-verified summaries; never execute remediation text",
     ],
 }
 

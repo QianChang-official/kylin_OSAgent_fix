@@ -93,6 +93,19 @@ export MODEL_NAME=<configured-model-name>
 
 配置不完整或请求异常时会安全降级为 `offline_safe`。
 
+### 控制台认证（必需）
+
+服务端认证默认开启；缺少以下配置时会拒绝启动：
+
+```bash
+export CONSOLE_AUTH_ENABLED=1
+export CONSOLE_AUTH_USERNAME=operator
+export CONSOLE_AUTH_PASSWORD_HASH="$(python scripts/hash_console_password.py)"
+export CONSOLE_AUTH_SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+```
+
+跨主机访问必须通过 HTTPS 反向代理，并设置 `CONSOLE_AUTH_SECURE_COOKIE=1`。只有绑定 `127.0.0.1` 的临时本机开发实例可以显式关闭认证；关闭后服务端仍拒绝非回环客户端。
+
 ## 5. 启动后端和 Vue 控制台
 
 ```bash
@@ -165,8 +178,9 @@ bash scripts/offline-smoke-test.sh
 `deploy/install.sh` 会：
 
 - 使用脚本自身路径定位项目根目录。
-- 创建 `/opt/safeopsagent/data`。
-- 创建 `/etc/safeops-agent/env.conf`，如果已存在则不覆盖。
+- 创建 `/opt/safeopsagent/data`；仅该数据目录和 `/var/log/safeopsagent` 归 `opsagent:opsagent`，安装根、代码和虚拟环境均保持 `root:root` 所有。
+- 每次安装都在 `/opt/safeopsagent` 下的临时 staging 目录中重建虚拟环境并完成依赖安装，全程通过绝对路径调用 Python/pip，不加载 `activate`；只有 staging 完整后才短暂停止服务并激活新版本，启动或健康检查失败时自动恢复旧版本、systemd unit 和原服务状态。安装脚本必须从解压后的交付树运行，不能从 `/opt/safeopsagent` 自身运行。
+- 首次安装时交互生成 PBKDF2 密码校验串和随机会话密钥，再创建 `/etc/safeops-agent/env.conf`；已有文件不会覆盖，但认证配置不完整或不符合强度约束时会失败关闭。
 - 安装 systemd service 文件。
 - 默认只启用并启动 `safeops-agent.service`；Vue 控制台由该 FastAPI 服务同源托管。
 - 保留 `safeops-web.service`，但不默认启用 Streamlit。
@@ -179,7 +193,15 @@ MODEL_API_BASE=
 MODEL_API_KEY=
 MODEL_NAME=
 BACKEND_URL=http://127.0.0.1:8000
+CONSOLE_AUTH_ENABLED=1
+CONSOLE_AUTH_USERNAME=operator
+CONSOLE_AUTH_PASSWORD_HASH=<由 python scripts/hash_console_password.py 生成>
+CONSOLE_AUTH_SESSION_SECRET=<由 secrets.token_urlsafe(48) 生成的随机密钥>
+CONSOLE_AUTH_SECURE_COOKIE=0
+CONSOLE_AUTH_ALLOW_INSECURE_NON_LOOPBACK=0
 ```
+
+非交互安装必须预先导出 `CONSOLE_AUTH_PASSWORD_HASH`；也可以同时设置 `CONSOLE_AUTH_USERNAME` 和 `CONSOLE_AUTH_SESSION_SECRET`。密码校验串必须使用 PBKDF2-SHA256、`200000..2000000` 次迭代、解码后 `8..64` 字节 salt 和 32 字节 digest。会话密钥必须包含 `32..256` 个 URL-safe 字符，并会拒绝明显重复或字符种类过少的低熵模式；建议始终使用 `secrets.token_urlsafe(48)` 生成。脚本只写入密码校验串，不接收或保存明文密码。跨主机经 HTTPS 反向代理访问时，将 `CONSOLE_AUTH_SECURE_COOKIE` 改为 `1`。
 
 如需模型服务模式，在该文件中填入 `MODEL_*` 环境变量。API Key 只能放在部署环境中，不写入代码仓库。
 

@@ -14,6 +14,7 @@ import re
 import stat
 import unicodedata
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -24,6 +25,8 @@ MAX_FINDINGS_RETURNED = 200
 MAX_JSON_DEPTH = 24
 MAX_JSON_CONTAINER_ITEMS = 10_000
 MAX_JSON_NODES = 50_000
+MAX_SCAN_DIRECTORY_ENTRIES = 1_000
+MAX_SCAN_LIST_BYTES = 50 * 1024 * 1024
 ALLOWED_SEVERITIES = {"critical", "high", "medium", "low", "informational", "unknown"}
 ALLOWED_COMPLETENESS = {"complete", "partial", "unknown"}
 _UNSAFE_FORMAT_CHARS = {
@@ -48,6 +51,10 @@ class CodexResultError(ValueError):
     """A scan directory or artifact failed containment/integrity validation."""
 
 
+class _ScanListBudgetExhausted(CodexResultError):
+    """Internal signal used to stop bounded scan-list discovery."""
+
+
 @dataclass(frozen=True)
 class _CheckedDocument:
     payload: dict[str, Any]
@@ -56,30 +63,54 @@ class _CheckedDocument:
 
 class CodexResultStore:
     def __init__(self, root: Path, project_root: Path) -> None:
-        self.root = Path(root).expanduser().resolve()
+        configured_root = Path(root).expanduser()
+        if configured_root.is_symlink():
+            raise CodexResultError("Codex Security result root must not be a symbolic link")
+        self.root = configured_root.resolve()
         self.project_root = Path(project_root).resolve()
         if _is_contained(self.project_root, self.root):
             raise CodexResultError("Codex Security result root must be outside the project")
 
     def list_scans(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Compatibility wrapper returning only discovered summaries."""
+        return self.list_scans_page(limit=limit)["scans"]
+
+    def list_scans_page(self, limit: int = 50) -> dict[str, Any]:
+        """Return bounded summaries and disclose exhausted discovery budgets."""
         if not self.root.is_dir() or self.root.is_symlink():
-            return []
+            return _scan_list_page([])
         summaries: list[dict[str, Any]] = []
+        byte_budget = [MAX_SCAN_LIST_BYTES]
+        limit_reasons: list[str] = []
         try:
+            bounded_candidates = list(
+                islice(self.root.iterdir(), MAX_SCAN_DIRECTORY_ENTRIES + 1)
+            )
+            if len(bounded_candidates) > MAX_SCAN_DIRECTORY_ENTRIES:
+                limit_reasons.append("directory_entry_budget")
             candidates = sorted(
-                self.root.iterdir(),
+                bounded_candidates[:MAX_SCAN_DIRECTORY_ENTRIES],
                 key=_mtime_or_zero,
                 reverse=True,
             )
         except OSError:
-            return []
+            return _scan_list_page([])
+        entries_examined = 0
         for candidate in candidates:
             if len(summaries) >= max(1, min(int(limit), 100)):
                 break
+            entries_examined += 1
             if not SCAN_ID_PATTERN.fullmatch(candidate.name):
                 continue
             try:
-                loaded = self.load(candidate.name, finding_limit=0)
+                loaded = self.load(
+                    candidate.name,
+                    finding_limit=0,
+                    _byte_budget=byte_budget,
+                )
+            except _ScanListBudgetExhausted:
+                limit_reasons.append("document_byte_budget")
+                break
             except CodexResultError:
                 continue
             summaries.append(
@@ -92,11 +123,23 @@ class CodexResultStore:
                     "finding_count": loaded["finding_count"],
                     "severity_counts": loaded["severity_counts"],
                     "integrity_verified": True,
+                    "authenticity_verified": False,
+                    "trust_basis": "manifest_hash_consistency_and_private_directory_acl",
                 }
             )
-        return summaries
+        return _scan_list_page(
+            summaries,
+            limit_reasons=limit_reasons,
+            entries_examined=entries_examined,
+        )
 
-    def load(self, scan_id: str, finding_limit: int = 100) -> dict[str, Any]:
+    def load(
+        self,
+        scan_id: str,
+        finding_limit: int = 100,
+        *,
+        _byte_budget: list[int] | None = None,
+    ) -> dict[str, Any]:
         if not SCAN_ID_PATTERN.fullmatch(str(scan_id)):
             raise CodexResultError("Invalid scan directory identifier")
         candidate = self.root / scan_id
@@ -106,7 +149,7 @@ class CodexResultStore:
         if scan_dir.parent != self.root or not scan_dir.is_dir():
             raise CodexResultError("Scan directory was not found or is not a regular directory")
 
-        manifest_doc = _read_document(scan_dir, "scan-manifest.json")
+        manifest_doc = _read_document(scan_dir, "scan-manifest.json", _byte_budget)
         manifest = manifest_doc.payload
         _require_document_type(manifest, "codex-security.scan-manifest")
         scan = manifest.get("scan")
@@ -115,8 +158,8 @@ class CodexResultStore:
 
         findings_ref = _safe_reference(scan.get("findingsRef"), "findings.json")
         coverage_ref = _safe_reference(scan.get("coverageRef"), "coverage.json")
-        findings_doc = _read_document(scan_dir, findings_ref)
-        coverage_doc = _read_document(scan_dir, coverage_ref)
+        findings_doc = _read_document(scan_dir, findings_ref, _byte_budget)
+        coverage_doc = _read_document(scan_dir, coverage_ref, _byte_budget)
         _verify_artifact_digest(scan, findings_ref, findings_doc.digest)
         _verify_artifact_digest(scan, coverage_ref, coverage_doc.digest)
         _require_document_type(findings_doc.payload, "codex-security.findings")
@@ -165,12 +208,18 @@ class CodexResultStore:
             "findings": normalized[:requested_limit],
             "findings_truncated": len(normalized) > requested_limit,
             "integrity_verified": True,
+            "authenticity_verified": False,
+            "trust_basis": "manifest_hash_consistency_and_private_directory_acl",
             "trust": "external_scan_result",
             "usage_policy": "review_only_never_execute",
         }
 
 
-def _read_document(scan_dir: Path, relative_name: str) -> _CheckedDocument:
+def _read_document(
+    scan_dir: Path,
+    relative_name: str,
+    byte_budget: list[int] | None = None,
+) -> _CheckedDocument:
     reference = _safe_reference(relative_name, relative_name)
     path = scan_dir / reference
     try:
@@ -204,6 +253,10 @@ def _read_document(scan_dir: Path, relative_name: str) -> _CheckedDocument:
         os.close(descriptor)
     if len(raw) > MAX_DOCUMENT_BYTES:
         raise CodexResultError(f"{reference} exceeds the document size limit")
+    if byte_budget is not None:
+        if not byte_budget or len(raw) > byte_budget[0]:
+            raise _ScanListBudgetExhausted("Codex Security scan-list byte budget exhausted")
+        byte_budget[0] -= len(raw)
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -217,6 +270,21 @@ def _read_document(scan_dir: Path, relative_name: str) -> _CheckedDocument:
         raise CodexResultError(f"{reference} must contain a JSON object")
     _validate_json_limits(payload, reference)
     return _CheckedDocument(payload=payload, digest=hashlib.sha256(raw).hexdigest())
+
+
+def _scan_list_page(
+    scans: list[dict[str, Any]],
+    *,
+    limit_reasons: list[str] | None = None,
+    entries_examined: int = 0,
+) -> dict[str, Any]:
+    reasons = list(dict.fromkeys(limit_reasons or []))
+    return {
+        "scans": scans,
+        "discovery_limited": bool(reasons),
+        "discovery_limit_reasons": reasons,
+        "entries_examined": max(0, int(entries_examined)),
+    }
 
 
 def _validate_json_nesting(text: str, reference: str) -> None:

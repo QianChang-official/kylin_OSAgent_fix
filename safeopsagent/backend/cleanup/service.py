@@ -346,6 +346,8 @@ class CleanupService:
             }
 
     def _candidate(self, root: Path, path: Path, cutoff: float) -> dict[str, Any] | None:
+        if self._is_protected_asset(path):
+            raise CleanupError(f"Skipped protected asset: {path}")
         if path.suffix.lower() not in config.SAFE_CLEANUP_ALLOWED_SUFFIXES:
             return None
         self._ensure_path_components(root, path.parent)
@@ -407,6 +409,8 @@ class CleanupService:
         if any(marker in value for marker in config.COMMAND_SHELL_META_CHARS):
             raise CleanupError("Cleanup path contains blocked characters")
         requested = Path(value).expanduser().resolve(strict=True)
+        if self._is_protected_asset(requested):
+            raise CleanupError("Cleanup path is a protected SafeOpsAgent asset")
         allowed = next((root for root in self.allowed_roots if self._is_within(requested, root)), None)
         if allowed is None:
             allowed_text = ", ".join(str(root) for root in self.allowed_roots)
@@ -613,7 +617,29 @@ class CleanupService:
     def _is_forbidden_cleanup_root(self, root: Path) -> bool:
         if root.anchor and root == Path(root.anchor):
             return True
+        if self._is_protected_asset(root):
+            return True
         return root.as_posix().rstrip("/") in FORBIDDEN_CLEANUP_ROOTS
+
+    def _is_protected_asset(self, candidate: Path) -> bool:
+        """Refuse anything inside SafeOpsAgent's own irreplaceable assets.
+
+        Evaluated before every allowlist so that a misconfigured cleanup root
+        can never put the audit trail, the attribution evidence or the console
+        itself within reach of an automated action.
+        """
+        try:
+            resolved = Path(candidate).expanduser().resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            return True
+        for protected in config.PROTECTED_ASSET_PATHS:
+            try:
+                guarded = Path(protected).expanduser().resolve(strict=False)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if resolved == guarded or self._is_within(resolved, guarded):
+                return True
+        return False
 
     def _warning(self, warnings: list[str], message: str) -> None:
         if len(warnings) < 20:

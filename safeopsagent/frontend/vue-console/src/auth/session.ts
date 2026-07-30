@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { api } from '@/api/client'
+import { api, setUnauthorizedHandler } from '@/api/client'
 import type { AuthCredentials, AuthSession } from '@/types/api'
 
 interface AuthState {
@@ -17,6 +17,21 @@ export const authState = reactive<AuthState>({
 })
 
 let sessionRequest: Promise<AuthSession> | null = null
+
+function unauthenticatedSession(): AuthSession {
+  return {
+    enabled: authState.session?.enabled ?? true,
+    authenticated: false,
+    username: null,
+    expires_at: null,
+    csrf_token: null,
+  }
+}
+
+setUnauthorizedHandler(() => {
+  authState.session = unauthenticatedSession()
+  authState.initialized = true
+})
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '无法确认登录状态。'
@@ -77,13 +92,7 @@ export async function signOut(): Promise<AuthSession> {
   authState.error = ''
   try {
     await api.authLogout()
-    const session: AuthSession = {
-      enabled: authState.session?.enabled ?? true,
-      authenticated: false,
-      username: null,
-      expires_at: null,
-      csrf_token: null,
-    }
+    const session = unauthenticatedSession()
     authState.session = session
     authState.initialized = true
     return session

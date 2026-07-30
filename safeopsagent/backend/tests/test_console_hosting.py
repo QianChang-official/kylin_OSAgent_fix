@@ -1,8 +1,10 @@
 import re
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from backend.app import CONSOLE_DIST_DIR, app
+from backend.app import CONSOLE_DIST_DIR, _console_response, app
 
 
 client = TestClient(app)
@@ -40,3 +42,11 @@ def test_console_fallback_does_not_swallow_backend_api():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert "text/html" not in response.headers.get("content-type", "")
+
+
+def test_console_asset_traversal_is_rejected_before_file_access():
+    with pytest.raises(HTTPException) as caught:
+        _console_response("../../app.py")
+
+    assert caught.value.status_code == 404
+    assert caught.value.detail == "Console asset not found"

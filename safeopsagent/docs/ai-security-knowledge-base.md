@@ -19,8 +19,11 @@
 - 真实扫描需要显式授权、受控凭据和成本上限，例如 `--auth api-key --max-cost 5`
 - 扫描目标必须是非符号链接仓库目录，输出目录必须位于仓库外
 - 知识库可显式传入 `docs/`，用于提供架构、安全策略和外部资源映射
+- 在 SafeOpsAgent 主机上用 `CODEX_SECURITY_RESULTS_DIR` 指向仓库外的私有结果父目录；控制台只读取通过路径、大小、结构和 SHA-256 校验的摘要
 
 真实扫描可能读取仓库内容并使用外部认证。只扫描自己拥有或被授权评估的仓库，报告目录应放在仓库外并限制访问。SafeOpsAgent 只导入完成后、哈希校验通过的 JSON 摘要，不执行报告里的修复建议。
+
+这里的 SHA-256 校验只证明 manifest 声明与结果文件一致，不证明结果一定来自某台扫描节点。结果目录 ACL 是当前信任根：仅允许受信扫描流水线写入，并由人工复核摘要。
 
 ## 补天 AI 安全工具映射
 
@@ -61,6 +64,8 @@ SafeOpsAgent 不生成、隐藏或执行利用载荷、恶意代码、钓鱼内�
 - `backend/security/guardrail.py`：提示词注入、危险命令、敏感路径、隐藏字符规范化
 - `backend/tools/registry.py`：工具白名单和 JSON Schema 参数校验
 - `backend/app.py`：工具调用二次校验、人工确认、审计记录和资源 API
+- `backend/security/console_auth.py`：真实服务端登录、签名会话、HttpOnly Cookie、CSRF 和失败限流；不存在隐藏入口或前端绕过
+- `backend/security_intel/`：精选工具登记表，以及按不可信内容处理的公开 AISecurity RSS 快照与确定性防护映射
 - `integrations/codex-security/scan.mjs`：隔离扫描主机上的 Codex Security runner
 - `backend/security/codex_results.py`：完成扫描结果的哈希校验与只读摘要导入
 - `frontend/vue-console/src/views/SecurityView.vue`：安全验证场景、外部资源索引、项目落地说明

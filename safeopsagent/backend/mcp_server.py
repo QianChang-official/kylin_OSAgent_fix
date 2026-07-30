@@ -14,6 +14,26 @@ from backend.mcp_adapter import call_mcp_tool, list_mcp_tools
 
 SERVER_NAME = "safeopsagent"
 SERVER_VERSION = "1.3.0"
+_AUTHENTICATED_PARENT_SCOPE_KEY = "safeops.console_auth_enforced"
+
+
+class _RequireAuthenticatedParent:
+    """Reject direct HTTP use unless the parent auth middleware approved it."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") == "http" and scope.get(_AUTHENTICATED_PARENT_SCOPE_KEY) is not True:
+            from starlette.responses import JSONResponse
+
+            response = JSONResponse(
+                {"detail": "HTTP MCP requires the authenticated FastAPI parent"},
+                status_code=403,
+            )
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 def create_server():
@@ -61,13 +81,23 @@ async def run_stdio() -> None:
         )
 
 
-def create_sse_server():
-    """Create a Starlette app exposing the MCP server over SSE transport.
+def mount_sse_server(parent_app, path: str = "/mcp") -> None:
+    """Mount HTTP MCP only under SafeOpsAgent's authenticated FastAPI app."""
+    if not _has_console_auth_boundary(parent_app):
+        raise RuntimeError(
+            "HTTP MCP must be mounted under the authenticated FastAPI application"
+        )
+    parent_app.mount(path, _create_sse_server())
+
+
+def _create_sse_server():
+    """Create the private Starlette sub-application used by ``mount_sse_server``.
 
     This lets external MCP clients connect to SafeOpsAgent via SSE/HTTP
     instead of stdio, so the FastAPI service can host REST API, Vue
     console and MCP SSE on the same origin. Requires the optional MCP
-    SDK (backend/requirements-mcp.txt).
+    SDK (backend/requirements-mcp.txt). The returned sub-application has no
+    independent authentication and may only be mounted under backend.app.
     """
     Server, types = _load_server_types()
     NotificationOptions, InitializationOptions, _ = _load_runtime_types()
@@ -95,20 +125,32 @@ def create_sse_server():
             )
         return Response()
 
-    return Starlette(routes=[
-        Route("/sse", endpoint=handle_sse),
-        Mount("/messages/", app=sse.handle_post_message),
-    ])
+    return _RequireAuthenticatedParent(
+        Starlette(routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ])
+    )
+
+
+def _has_console_auth_boundary(parent_app) -> bool:
+    """Recognize the concrete SafeOpsAgent auth middleware on the parent app."""
+    for middleware in getattr(parent_app, "user_middleware", ()):
+        dispatch = getattr(middleware, "kwargs", {}).get("dispatch")
+        if (
+            getattr(dispatch, "__module__", "") == "backend.app"
+            and getattr(dispatch, "__name__", "") == "enforce_console_auth"
+        ):
+            return True
+    return False
 
 
 async def run_sse(host: str = "127.0.0.1", port: int = 8765) -> None:
-    """Run the SafeOpsAgent MCP server over SSE as a standalone uvicorn app."""
-    import uvicorn
-
-    starlette_app = create_sse_server()
-    config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
-    uvicorn_server = uvicorn.Server(config)
-    await uvicorn_server.serve()
+    """Reject the legacy unauthenticated standalone HTTP transport."""
+    del host, port
+    raise RuntimeError(
+        "Standalone HTTP MCP is disabled; use /mcp on the authenticated FastAPI service"
+    )
 
 
 def _load_sse_transport():

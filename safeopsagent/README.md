@@ -2,7 +2,7 @@
 
 SafeOpsAgent 是面向银河麒麟操作系统的安全智能运维 Agent。项目的核心目标不是把大模型变成开放 Shell，而是在自然语言和操作系统之间增加一层安全控制面：**模型负责理解、规划和总结，系统负责安全预检、工具白名单、风险评分、最小权限执行和审计追踪。模型永远不能直接执行系统命令。**
 
-当前版本 v1.3.0 提供完整的安全智能运维能力：17 个受控运维工具、跨工具根因分析引擎、变更—故障因果关联、操作影响面预测、自学习基线监控大盘、五层安全护栏、MCP 双传输协议、Vue 可视化控制台与全链路审计追踪。系统已在银河麒麟 V11 LoongArch64 环境完成真机复验，312 项自动化测试通过，64 项安全对抗基准误报 0、漏报 0，10 条安全不变式机器验证全部成立。
+当前版本 v1.3.0 提供完整的安全智能运维能力：17 个受控运维工具、跨工具根因分析引擎、变更—故障因果关联、操作影响面预测、自学习基线监控大盘、五层安全护栏、MCP 双传输协议、Vue 可视化控制台与全链路审计追踪。系统已在银河麒麟 V11 LoongArch64 环境完成真机复验，基线为 312 项自动化测试通过；本轮 AI 安全集成本机全量回归为 358 项通过、7 项环境跳过。64 项安全对抗基准误报 0、漏报 0，10 条安全不变式机器验证全部成立。
 
 ## 核心能力
 
@@ -22,11 +22,15 @@ SafeOpsAgent 是面向银河麒麟操作系统的安全智能运维 Agent。项�
 | **变更—故障因果关联** | 已完成 | 持久化配置漂移时间线，按实体与时间双轴对齐，定位"是哪次变更导致的故障"。 |
 | **操作影响面预测** | 已完成 | 处置前推演持有进程、所属服务与监听端口，识别句柄泄漏陷阱并给出 truncate/rm 建议。 |
 | **自学习基线监控** | 已完成 | 中位数 + MAD 从本机历史学习正常区间，替代固定阈值；含监控大盘与偏离告警。 |
-| **安全不变式自证明** | 已完成 | 5 条静态 + 5 条运行时不变式机器验证，输出验证报告，失败非零退出可作发布门禁。 |
+| **安全不变式自证明** | 已完成 | 5 条静态 + 7 条运行时不变式机器验证，输出验证报告，失败非零退出可作发布门禁。 |
 | `/chat` Agent 编排 | 已完成 | 支持最多 3 个只读工具联合诊断，返回由真实工具数据生成的诊断、证据、根因链和建议。 |
 | 可恢复安全清理 | 已完成 | 仅在临时目录白名单中扫描和计划；隔离/恢复需 dry-run、一次性确认、元数据复验和审计，不永久删除。 |
 | `/tools/call` / `/tools/confirm` | 已完成 | 支持 allow / confirm / reject 三态决策，中风险 dry-run 后人工确认。 |
 | Audit Trace v2 | 已完成 | 每次请求生成 `request_id`，可回放安全检查、工具规划、执行和审计事件；append-only 不可清除。 |
+| **前门欺骗（蜜罐）** | 已完成 | 公开登录为诱饵，连续失败发放沙箱会话；沙箱只见合成数据，真实处理函数不可达。详见 [docs/front-door-deception.md](docs/front-door-deception.md)。 |
+| **隐蔽入口门** | 已完成 | 运维登录须先通过服务端 PBKDF2 口令校验；未通过者无法触达口令校验器。口令与哈希均不进入前端构建产物。 |
+| **被动溯源取证** | 已完成 | 记录来源、代理链、请求指纹、节奏与尝试凭据摘要，输出攻击分类与定级；追加写入证据链，默认零外连。 |
+| **珍贵资产保护** | 已完成 | 审计库、溯源证据与控制台构建产物在所有白名单校验之前即被拒绝，自动清理永不可达。 |
 | Session TTL | 已完成 | 限制会话生命周期和最大消息数，避免上下文无限增长。 |
 | Vue 控制台 | 已完成 | FastAPI 同源托管 `/console/`，运行时不依赖 Node、Streamlit 或 pyarrow。 |
 | **MCP stdio + SSE** | 已完成 | 17 个工具以 MCP 标准协议暴露，支持 stdio 与 SSE / Streamable HTTP 双传输，同源同端口。 |
@@ -55,6 +59,28 @@ SafeOpsAgent 是面向银河麒麟操作系统的安全智能运维 Agent。项�
 - 中风险工具调用需要 dry-run 和一次性令牌人工确认。
 - 每次允许、拒绝或环境受限请求都会写入审计，审计数据不可清除。
 - API Key 只能通过环境变量注入，不写入代码、文档、日志或数据库。
+
+## 控制台访问控制
+
+服务端认证默认开启；账号、PBKDF2 密码校验串和至少 32 字符的会话密钥缺失时，服务拒绝启动。首次运行先配置：
+
+```bash
+export CONSOLE_AUTH_ENABLED=1
+export CONSOLE_AUTH_USERNAME=operator
+export CONSOLE_AUTH_PASSWORD_HASH="$(python scripts/hash_console_password.py)"
+export CONSOLE_AUTH_SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+```
+
+Windows PowerShell：
+
+```powershell
+$env:CONSOLE_AUTH_ENABLED="1"
+$env:CONSOLE_AUTH_USERNAME="operator"
+$env:CONSOLE_AUTH_PASSWORD_HASH=(python scripts/hash_console_password.py)
+$env:CONSOLE_AUTH_SESSION_SECRET=(python -c "import secrets; print(secrets.token_urlsafe(48))")
+```
+
+公网或局域网访问必须放在 HTTPS 反向代理后，并设置 `CONSOLE_AUTH_SECURE_COOKIE=1`。仅本机开发可显式设置 `CONSOLE_AUTH_ENABLED=0`，且必须绑定 `127.0.0.1`；后端会拒绝来自非回环地址的无认证请求。
 
 ## 运行模式
 
@@ -195,9 +221,9 @@ python3 -m pip install -r backend/requirements-mcp.txt
 ```
 
 - **stdio 传输**：`python -m backend.mcp_server`
-- **SSE 传输**：随主服务自动挂载 `/mcp/sse` 与 `/mcp/messages/`，与 HTTP API、Vue 控制台同源同端口
+- **SSE 传输**：随主服务自动挂载 `/mcp/sse` 与 `/mcp/messages/`，与 HTTP API、Vue 控制台同源同端口并复用同一认证边界
 
-未安装 MCP SDK 时 SSE 静默跳过，stdio 与主服务均不受影响。所有 MCP 调用同样经过完整安全链路，不存在绕过通道。
+未安装 MCP SDK 时 SSE 静默跳过，stdio 与主服务均不受影响。独立、无认证的网络 SSE 启动方式已禁用；所有 HTTP MCP 调用必须经过主服务认证。
 
 ## 工具清单
 

@@ -6,7 +6,8 @@ isolated scan host, not the Kylin LoongArch64 runtime.
 
 Prerequisites:
 
-- Node.js 22.13 or later and Python 3.10 or later.
+- Node.js 22.13 or later in the 22.x line, or Node.js 24.x/26.x, and Python
+  3.10 or later.
 - Codex Security access for the selected credential. An API key or ChatGPT
   login alone does not grant that access.
 - Authorization to assess the repository.
@@ -42,6 +43,19 @@ rejects linked repository/context paths, and requires output outside the
 repository. Scan reports can contain source excerpts and vulnerability
 details; keep the result directory private. SafeOpsAgent imports only sealed,
 hash-verified summaries and never executes remediation from a report.
+
+To expose completed summaries in the console, set
+`CODEX_SECURITY_RESULTS_DIR` on the SafeOpsAgent host to the private parent
+directory containing per-scan result directories. That path must remain
+outside the SafeOpsAgent repository. The authenticated APIs are:
+
+- `GET /security/codex/scans`
+- `GET /security/codex/scans/{scan_id}`
+
+The importer verifies containment and manifest-declared SHA-256 consistency;
+it does not cryptographically prove which scan host produced a manifest. Keep
+the directory writable only by the trusted scan pipeline and require human
+review. The console labels this trust basis explicitly.
 
 Official documentation:
 

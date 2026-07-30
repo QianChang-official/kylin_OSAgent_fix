@@ -5,6 +5,7 @@ import type {
   AuditLog,
   ChatResponse,
   CodexScansResponse,
+  DeceptionIncidents,
   HealthResponse,
   AiSecurityIntelResponse,
   MetricAnomaly,
@@ -21,6 +22,11 @@ const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 const DEFAULT_TIMEOUT_MS = 15_000
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 let csrfToken = ''
+let unauthorizedHandler: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: () => void) {
+  unauthorizedHandler = handler
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -52,6 +58,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     })
     const payload = await response.json().catch(() => null)
     if (!response.ok) {
+      if (response.status === 401) {
+        csrfToken = ''
+        unauthorizedHandler?.()
+      }
       const detail = payload?.detail
       throw new ApiError(typeof detail === 'string' ? detail : `请求失败 (${response.status})`, response.status)
     }
@@ -100,6 +110,17 @@ export const api = {
   authLogin: async (credentials: AuthCredentials) => (
     parseAuthSession(await post<unknown>('/auth/login', credentials))
   ),
+  // Resolved entirely by the backend: the passphrase is verified against a
+  // PBKDF2 record server-side and never exists in this bundle in any form.
+  // A wrong passphrase is answered as a plain 404, so failure reveals nothing.
+  authGate: async (passphrase: string) => {
+    try {
+      await post<unknown>('/auth/gate', { passphrase })
+      return true
+    } catch {
+      return false
+    }
+  },
   authLogout: async () => {
     await post<unknown>('/auth/logout', {})
     csrfToken = ''
@@ -134,4 +155,6 @@ export const api = {
   monitorAnomalies: async () =>
     (await request<{ anomalies: MetricAnomaly[] }>('/monitor/anomalies')).anomalies,
   monitorSample: () => post<{ sample: Record<string, unknown>; stored_metrics: number }>('/monitor/sample', {}),
+  deceptionIncidents: (limit = 50) =>
+    request<DeceptionIncidents>(`/security/deception/incidents?limit=${Math.max(1, Math.min(limit, 500))}`),
 }

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
+from backend import app as app_module
 from backend.security_intel import (
     AISECURITY_RSS_URL,
     FeedSecurityError,
@@ -32,6 +34,32 @@ def test_catalog_pins_external_only_integrations_and_governance():
     assert governance["automatic_full_site_scraping"] == "prohibited"
     assert governance["active_attack_categories"] == "defensive_reference_only"
     assert catalog["external_content_policy"]["automatic_model_ingestion"] is False
+
+
+def test_security_intel_apis_are_bounded_and_use_reviewed_snapshot_by_default():
+    client = TestClient(app_module.app)
+
+    catalog_response = client.get("/security/integrations")
+    feed_response = client.get("/security/intel/aisecurity?limit=1")
+
+    assert catalog_response.status_code == 200
+    assert catalog_response.json()["butian_ai_tools_governance"]["tool_installation"] == "prohibited"
+    assert feed_response.status_code == 200
+    feed = feed_response.json()
+    assert feed["delivery"] == "local_snapshot"
+    assert feed["snapshot_used"] is True
+    assert feed["untrusted"] is True
+    assert feed["automatic_model_ingestion"] is False
+    assert len(feed["items"]) == 1
+    assert feed["item_count"] >= len(feed["items"])
+
+
+def test_malformed_network_feed_falls_back_to_reviewed_snapshot():
+    result = load_aisecurity_feed(fetcher=lambda _url, _timeout: b"<rss>")
+
+    assert result["delivery"] == "local_snapshot"
+    assert result["snapshot_used"] is True
+    assert result["items"]
 
 
 def test_rss_parser_strips_html_controls_zero_width_and_bidi():
@@ -101,3 +129,12 @@ def test_rss_parser_rejects_entity_declarations():
 
     with pytest.raises(FeedSecurityError, match="entity declarations"):
         parse_aisecurity_rss(payload)
+
+
+def test_rss_parser_rejects_utf16_entity_declarations_before_xml_parsing():
+    payload = """<?xml version="1.0" encoding="UTF-16"?>
+    <!DOCTYPE rss [<!ENTITY x "injected">]>
+    <rss version="2.0"><channel><item><title>&x;</title></item></channel></rss>"""
+
+    with pytest.raises(FeedSecurityError, match="UTF-8 encoding"):
+        parse_aisecurity_rss(payload.encode("utf-16"))
