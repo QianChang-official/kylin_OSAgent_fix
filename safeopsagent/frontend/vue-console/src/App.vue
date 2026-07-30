@@ -22,6 +22,7 @@ import {
   ListDetails,
   Lock,
   Logout,
+  Crosshair,
   ShieldCheck,
   Tool,
   UserCircle,
@@ -57,6 +58,7 @@ const navItems = [
   { path: '/security', title: '安全中心', desc: '危险请求验证', icon: ShieldCheck },
   { path: '/tools', title: '工具能力', desc: '受控只读工具', icon: Tool },
   { path: '/audit', title: '审计追踪', desc: '证据链回放', icon: ListDetails },
+  { path: '/attribution', title: '溯源画像', desc: '前门欺骗取证', icon: Crosshair },
 ]
 
 const currentTitle = computed(() => navItems.find((item) => item.path === route.path)?.title || '控制台')
@@ -92,7 +94,7 @@ async function logout() {
   try {
     await signOut()
     status.value = null
-    await router.replace({ name: 'login' })
+    if (!authEnabled.value) await router.replace({ name: 'login' })
   } catch (error) {
     logoutError.value = error instanceof Error ? error.message : '退出登录失败。'
   } finally {
@@ -103,6 +105,15 @@ async function logout() {
 watch(canLoadStatus, (allowed) => {
   if (allowed && !status.value) void loadStatus()
 }, { immediate: true })
+
+watch(
+  () => authState.session?.authenticated,
+  (authenticated) => {
+    if (authEnabled.value && authenticated === false && !isLoginRoute.value) {
+      void router.replace({ name: 'login', query: { redirect: route.fullPath } })
+    }
+  },
+)
 </script>
 
 <template>

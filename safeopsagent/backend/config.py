@@ -51,10 +51,10 @@ TOOL_RESULT_MAX_LINES = 50
 REQUEST_TIMEOUT = 30
 CPU_SAMPLE_INTERVAL_SECONDS = float(os.environ.get("CPU_SAMPLE_INTERVAL_SECONDS", "1.0"))
 
-# Console authentication. Disabled by default for the localhost-only demo;
-# deployments should enable it or place the service behind an authenticated
-# reverse proxy. Passwords are stored only as PBKDF2 verifier strings.
-CONSOLE_AUTH_ENABLED = _env_bool("CONSOLE_AUTH_ENABLED", False)
+# Console authentication is secure by default. A localhost-only developer may
+# explicitly disable it; the HTTP middleware still rejects non-loopback clients.
+# Passwords are stored only as PBKDF2 verifier strings.
+CONSOLE_AUTH_ENABLED = _env_bool("CONSOLE_AUTH_ENABLED", True)
 CONSOLE_AUTH_USERNAME = os.environ.get("CONSOLE_AUTH_USERNAME", "").strip()
 CONSOLE_AUTH_PASSWORD_HASH = os.environ.get("CONSOLE_AUTH_PASSWORD_HASH", "").strip()
 CONSOLE_AUTH_SESSION_SECRET = os.environ.get("CONSOLE_AUTH_SESSION_SECRET", "")
@@ -65,6 +65,80 @@ CONSOLE_AUTH_SECURE_COOKIE = _env_bool("CONSOLE_AUTH_SECURE_COOKIE", False)
 CONSOLE_AUTH_COOKIE_NAME = "safeops_session"
 CONSOLE_LOGIN_ATTEMPT_LIMIT = int(os.environ.get("CONSOLE_LOGIN_ATTEMPT_LIMIT", "5"))
 CONSOLE_LOGIN_WINDOW_SECONDS = int(os.environ.get("CONSOLE_LOGIN_WINDOW_SECONDS", "60"))
+CONSOLE_LOGIN_ATTEMPT_KEY_LIMIT = int(
+    os.environ.get("CONSOLE_LOGIN_ATTEMPT_KEY_LIMIT", "4096")
+)
+CONSOLE_AUTH_ALLOW_INSECURE_NON_LOOPBACK = _env_bool(
+    "CONSOLE_AUTH_ALLOW_INSECURE_NON_LOOPBACK",
+    False,
+)
+
+# Rate limiting and incident attribution are only as trustworthy as the address
+# they key on. Forwarded headers are honoured only when the immediate peer is a
+# configured reverse proxy; otherwise any client could spoof its own source.
+CONSOLE_TRUSTED_PROXIES = _env_list("CONSOLE_TRUSTED_PROXIES", "")
+
+# Console entry gate. The public login page is a decoy; the operator login is
+# only served after this server-side passphrase check succeeds. An empty hash
+# keeps the gate disabled and the login single-factor.
+CONSOLE_ENTRY_GATE_HASH = os.environ.get("CONSOLE_ENTRY_GATE_HASH", "").strip()
+CONSOLE_ENTRY_GATE_COOKIE_NAME = "safeops_stage"
+CONSOLE_ENTRY_GATE_TTL_SECONDS = int(
+    os.environ.get("CONSOLE_ENTRY_GATE_TTL_SECONDS", "300")
+)
+CONSOLE_ENTRY_GATE_ATTEMPT_LIMIT = int(
+    os.environ.get("CONSOLE_ENTRY_GATE_ATTEMPT_LIMIT", "5")
+)
+CONSOLE_ENTRY_GATE_WINDOW_SECONDS = int(
+    os.environ.get("CONSOLE_ENTRY_GATE_WINDOW_SECONDS", "300")
+)
+
+# Deception. Repeated credential failures on the decoy login hand the client a
+# sandbox session: the console renders normally but every response is synthetic
+# and no real handler, tool or dataset is reachable from it.
+HONEYPOT_ENABLED = _env_bool("HONEYPOT_ENABLED", True)
+HONEYPOT_TRIGGER_ATTEMPTS = int(os.environ.get("HONEYPOT_TRIGGER_ATTEMPTS", "3"))
+# The decoy form carries its own flood budget, deliberately separate from the
+# real login's. An intruder hammering the public page must never consume the
+# operator's attempt allowance and lock them out of the true entrance. This
+# limit only bounds abuse; reaching the honeypot is the intended outcome.
+HONEYPOT_DECOY_ATTEMPT_LIMIT = int(
+    os.environ.get("HONEYPOT_DECOY_ATTEMPT_LIMIT", "60")
+)
+HONEYPOT_DECOY_WINDOW_SECONDS = int(
+    os.environ.get("HONEYPOT_DECOY_WINDOW_SECONDS", "60")
+)
+HONEYPOT_SESSION_TTL_SECONDS = int(
+    os.environ.get("HONEYPOT_SESSION_TTL_SECONDS", "1800")
+)
+HONEYPOT_HOSTNAME = os.environ.get("HONEYPOT_HOSTNAME", "kylin-app-07").strip()
+
+# Attribution evidence is append-only and stays on the local host. Enrichment
+# that would emit network traffic is opt-in so the default posture makes no
+# outbound connection and never signals the observed client.
+DECEPTION_EVIDENCE_DIR = Path(
+    os.environ.get("DECEPTION_EVIDENCE_DIR", str(PROJECT_DIR / "data" / "deception"))
+)
+DECEPTION_MAX_EVIDENCE_BYTES = int(
+    os.environ.get("DECEPTION_MAX_EVIDENCE_BYTES", str(32 * 1024 * 1024))
+)
+DECEPTION_MAX_TRACKED_SOURCES = int(
+    os.environ.get("DECEPTION_MAX_TRACKED_SOURCES", "4096")
+)
+DECEPTION_REVERSE_DNS = _env_bool("DECEPTION_REVERSE_DNS", False)
+DECEPTION_REVERSE_DNS_TIMEOUT_SECONDS = float(
+    os.environ.get("DECEPTION_REVERSE_DNS_TIMEOUT_SECONDS", "1.0")
+)
+
+# Assets that automated cleanup must never quarantine or delete, regardless of
+# how the cleanup roots are configured. Evaluated before any allowlist.
+PROTECTED_ASSET_PATHS = (
+    PROJECT_DIR,
+    PROJECT_DIR / "data",
+    PROJECT_DIR / "backend" / "static",
+    BASE_DIR / "static" / "console",
+    DECEPTION_EVIDENCE_DIR,
+)
 
 # The Vue console is same-origin in production. Only explicit development
 # origins receive cross-origin API access.

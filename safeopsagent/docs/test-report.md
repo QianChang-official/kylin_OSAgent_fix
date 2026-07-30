@@ -221,10 +221,10 @@ pass_rate:          100.0%
 | MCP-03 | MCP 通道高危输入 | 拒绝（不存在绕过通道） | 一致 | ✅ |
 | MCP-04 | MCP 通道中风险工具 | 返回 confirm + dry-run | 一致 | ✅ |
 | MCP-05 | 新增工具纳入 MCP 清单 | `config_drift_check` 等可被发现 | 一致 | ✅ |
-| MCP-06 | `create_sse_server` 函数存在 | 可导入 | 一致 | ✅ |
+| MCP-06 | `mount_sse_server` 认证挂载助手存在 | 仅接受已认证父应用 | 一致 | ✅ |
 | MCP-07 | 未安装 SDK 时调用 SSE | 明确 raise，不静默失败 | 一致 | ✅ |
 | MCP-08 | 未安装 SDK 时主服务 | 完全不受影响，stdio 仍可用 | 一致 | ✅ |
-| MCP-09 | 安装 SDK 后 SSE 挂载 | 返回 Starlette app | Linux 验证 | ⏭ 本地无 SDK 跳过 |
+| MCP-09 | 安装 SDK 后 SSE 挂载 | 挂载到认证 FastAPI 父应用；裸子应用返回 403 | 一致 | ✅ |
 
 ### 4.6 审计追踪测试（FR-5）
 

@@ -491,8 +491,13 @@ disk_usage + large_file_scan + journal_query
 tar -xzf safeopsagent-<commit>-final-delivery.tar.gz && cd safeopsagent
 python3 -m pip install -r backend/requirements-kylin.txt
 export MODEL_PROVIDER=offline_safe && export PYTHONPATH="$(pwd)"
-python3 -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
+export CONSOLE_AUTH_ENABLED=1 CONSOLE_AUTH_USERNAME=operator
+export CONSOLE_AUTH_PASSWORD_HASH='<预先生成的 PBKDF2 校验串>'
+export CONSOLE_AUTH_SESSION_SECRET='<至少 32 字符的随机密钥>'
+python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
+
+跨主机演示通过 HTTPS 反向代理或 SSH 端口转发访问，不直接把 Uvicorn 暴露到网络。
 
 **讲述要点**：
 > 5 个依赖包、不要 Node、不要外网、不要 root。**信创环境部署的每一个额外依赖都是风险**，我们把它压到了最低。

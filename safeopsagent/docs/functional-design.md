@@ -479,14 +479,14 @@ class ToolResult:
 
 ```python
 try:
-    from backend.mcp_server import create_sse_server
-    app.mount("/mcp", create_sse_server())
+    from backend.mcp_server import mount_sse_server
+    mount_sse_server(app)
 except Exception:
     # MCP SDK 未安装：SSE 不可用，stdio 仍可用，主服务完全不受影响
     pass
 ```
 
-这样 HTTP API、Vue 控制台、MCP SSE 三者同源托管在同一个端口。
+这样 HTTP API、Vue 控制台、MCP SSE 三者同源托管在同一个端口。挂载助手只接受已注册 SafeOpsAgent 认证中间件的父应用；MCP 子应用还会校验父应用写入的认证上下文，直接启动时失败关闭。
 
 ### 8.3 安全链路复用
 

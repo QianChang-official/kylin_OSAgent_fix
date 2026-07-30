@@ -61,7 +61,14 @@ const scenarios = [
 
 const visibleArticles = computed(() => resources.value?.articles.slice(0, 8) || [])
 const restrictedCount = computed(() => resources.value?.policy.restricted_category_count || 0)
-const verifiedScans = computed(() => codexScans.value?.scans.filter((scan) => scan.integrity_verified) || [])
+const hashConsistentScans = computed(() => codexScans.value?.scans.filter((scan) => scan.integrity_verified) || [])
+
+function intelMappingLabel(value: string) {
+  const labels: Record<string, string> = {
+    deterministic_local_keywords: '本地确定性规则映射',
+  }
+  return labels[value] || '本地规则映射'
+}
 
 function formatTimestamp(value: string) {
   if (!value) return '时间未知'
@@ -176,7 +183,7 @@ onMounted(() => {
               <span class="resource-eyebrow">{{ resources.codex_security.source }}</span>
               <h3>{{ resources.codex_security.title }}</h3>
             </div>
-            <n-tag type="success" size="small" :bordered="false">v{{ resources.codex_security.latest_version }}</n-tag>
+            <n-tag type="success" size="small" :bordered="false">锁定 v{{ resources.codex_security.pinned_version }}</n-tag>
           </div>
           <p>{{ resources.codex_security.summary }}</p>
           <div class="command-list">
@@ -184,8 +191,8 @@ onMounted(() => {
           </div>
           <div class="resource-actions">
             <a class="resource-link" :href="resources.codex_security.url" target="_blank" rel="noopener noreferrer">查看官方仓库</a>
-            <n-tag size="small" :bordered="false">默认 dry-run</n-tag>
-            <n-tag size="small" :bordered="false">知识库: docs/</n-tag>
+            <n-tag size="small" :bordered="false">外部扫描节点</n-tag>
+            <n-tag size="small" :bordered="false">只读导入</n-tag>
           </div>
         </article>
 
@@ -264,7 +271,7 @@ onMounted(() => {
             <n-tag :type="intel.automatic_model_ingestion ? 'error' : 'success'" size="small" :bordered="false">
               {{ intel.automatic_model_ingestion ? '允许自动进入模型' : '禁止自动进入模型' }}
             </n-tag>
-            <n-tag size="small" :bordered="false">{{ intel.mapping_mode }}</n-tag>
+            <n-tag size="small" :bordered="false">{{ intelMappingLabel(intel.mapping_mode) }}</n-tag>
           </div>
           <p>{{ intel.source.name }} · 共 {{ intel.item_count }} 条，当前展示 {{ intel.items.length }} 条。</p>
           <div class="article-list intel-list">
@@ -292,10 +299,11 @@ onMounted(() => {
         <div class="resource-title-row">
           <div>
             <span class="resource-eyebrow">Codex Security results</span>
-            <h3>已验证扫描摘要</h3>
+            <h3>哈希一致的扫描摘要</h3>
           </div>
-          <n-tag v-if="codexScans?.configured" type="success" size="small" :bordered="false">
-            {{ verifiedScans.length }} 项完整性已验证
+          <n-tag v-if="scansError" type="warning" size="small" :bordered="false">接口异常</n-tag>
+          <n-tag v-else-if="codexScans?.configured" type="success" size="small" :bordered="false">
+            {{ hashConsistentScans.length }} 项内部哈希一致
           </n-tag>
           <n-tag v-else size="small" :bordered="false">{{ scansLoading ? '读取中' : '未配置' }}</n-tag>
         </div>
@@ -303,21 +311,30 @@ onMounted(() => {
           {{ scansError }}。安全验证场景仍可独立运行。
         </n-alert>
         <template v-else-if="codexScans?.configured">
-          <div v-if="verifiedScans.length" class="scan-list">
-            <div v-for="scan in verifiedScans" :key="scan.directory_id" class="scan-row">
+          <n-alert
+            v-if="codexScans.discovery_limited"
+            type="warning"
+            title="扫描目录发现预算已触达"
+            :bordered="false"
+          >
+            当前列表可能不完整，请减少结果目录条目或清理无效扫描目录后重试。
+          </n-alert>
+          <div v-if="hashConsistentScans.length" class="scan-list">
+            <div v-for="scan in hashConsistentScans" :key="scan.directory_id" class="scan-row">
               <div class="scan-heading">
                 <strong>{{ scanTargetLabel(scan.target) }}</strong>
-                <n-tag type="success" size="small" :bordered="false">完整性已验证</n-tag>
+                <n-tag type="success" size="small" :bordered="false">内部哈希一致</n-tag>
               </div>
               <span>{{ formatTimestamp(scan.completed_at) }} · 覆盖率 {{ scan.coverage || 'unknown' }} · 发现 {{ scan.finding_count }} 项</span>
               <code>{{ scan.scan_id }}</code>
               <span>{{ scanSeveritySummary(scan.severity_counts) }}</span>
             </div>
           </div>
-          <p v-else class="empty-state">扫描目录已配置，暂未发现通过完整性验证的结果。</p>
+          <p v-else class="empty-state">扫描目录已配置，暂未发现内部哈希一致的可展示结果。</p>
         </template>
         <p v-else-if="codexScans" class="empty-state">未配置 Codex Security 扫描结果目录，当前仅展示资源集成信息。</p>
-        <p v-else class="empty-state">正在读取扫描结果状态…</p>
+          <p v-else class="empty-state">正在读取扫描结果状态…</p>
+          <p class="trust-note">哈希校验用于检测结果文件变化；扫描来源真实性由结果目录权限和人工复核保障。</p>
       </article>
     </div>
   </section>
@@ -404,6 +421,7 @@ onMounted(() => {
 .intel-list { max-height: 360px; overflow-y: auto; padding-right: 4px; }
 .article-meta { color: #5f707d !important; }
 .empty-state { color: #768592 !important; }
+.trust-note { padding-top: 9px; border-top: 1px solid #222d37; color: #667783 !important; }
 .scan-list { display: grid; gap: 0; margin-top: 10px; }
 .scan-row { display: grid; gap: 5px; padding: 11px 0; border-bottom: 1px solid #222d37; }
 .scan-row:last-child { border-bottom: 0; }

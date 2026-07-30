@@ -58,7 +58,7 @@ export interface CodexSecurityResource {
   title: string
   url: string
   package: string
-  latest_version: string
+  pinned_version: string
   summary: string
   commands: string[]
   safeops_usage: string[]
@@ -139,11 +139,16 @@ export interface CodexScanSummary {
   finding_count: number
   severity_counts: Record<string, number>
   integrity_verified: boolean
+  authenticity_verified: boolean
+  trust_basis: string
 }
 
 export interface CodexScansResponse {
   configured: boolean
   scans: CodexScanSummary[]
+  discovery_limited?: boolean
+  discovery_limit_reasons?: string[]
+  entries_examined?: number
 }
 
 export interface ToolPlanItem {
@@ -374,4 +379,71 @@ export interface MonitorOverview {
   sampler_running: boolean
   sample_interval_seconds: number
   collector_source: string
+}
+
+export type DeceptionSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical'
+
+export interface DeceptionSummary {
+  enabled: boolean
+  trigger_attempts: number
+  tracked_sources: number
+  sandbox_sessions_open: number
+  total_login_failures: number
+  total_gate_failures: number
+  total_sandbox_requests: number
+  highest_severity: DeceptionSeverity
+  evidence_path: string
+  evidence_error: string
+  reverse_dns_enabled: boolean
+}
+
+export interface DeceptionActivity {
+  at: string
+  event: string
+  [key: string]: unknown
+}
+
+export interface DeceptionSource {
+  source: string
+  network_scope: string
+  first_seen: string
+  last_seen: string
+  observed_seconds: number
+  login_failures: number
+  gate_failures: number
+  login_successes: number
+  sandbox_sessions: number
+  sandbox_requests: number
+  total_attempts: number
+  usernames_tried: string[]
+  distinct_passwords: number
+  credential_digests: string[]
+  user_agents: string[]
+  fingerprints: string[]
+  median_interval_seconds: number | null
+  forwarded_chain: string[]
+  proxy_trusted: boolean
+  automated_agent: boolean
+  reverse_dns: string
+  sandbox_active: boolean
+  classification: string
+  severity: DeceptionSeverity
+  recent_activity: DeceptionActivity[]
+}
+
+export interface DeceptionEvidence {
+  at: string
+  event: string
+  severity: DeceptionSeverity
+  classification: string
+  detail: Record<string, unknown>
+  client: Record<string, unknown>
+  dossier: Record<string, unknown>
+}
+
+export interface DeceptionIncidents {
+  summary: DeceptionSummary
+  gate_enabled: boolean
+  sources: DeceptionSource[]
+  recent_evidence: DeceptionEvidence[]
 }

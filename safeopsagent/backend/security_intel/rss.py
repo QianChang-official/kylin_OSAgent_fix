@@ -167,10 +167,10 @@ def load_aisecurity_feed(
     transport = fetcher or _fetch_rss_bytes
     try:
         payload = transport(AISECURITY_RSS_URL, float(timeout_seconds))
-    except (OSError, TimeoutError, urllib.error.URLError):
+        parsed = parse_aisecurity_rss(payload)
+    except (OSError, TimeoutError, urllib.error.URLError, FeedSecurityError):
         return load_aisecurity_snapshot()
 
-    parsed = parse_aisecurity_rss(payload)
     parsed["delivery"] = "network"
     parsed["snapshot_used"] = False
     return parsed
@@ -187,12 +187,15 @@ def load_aisecurity_snapshot() -> dict[str, Any]:
 def parse_aisecurity_rss(payload: bytes | str) -> dict[str, Any]:
     """Parse and sanitize an AISecurity RSS payload without network access."""
     raw = _bounded_payload(payload)
-    upper = raw.upper()
-    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+    try:
+        decoded = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise FeedSecurityError("AISecurity RSS must use UTF-8 encoding") from exc
+    if re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", decoded, flags=re.IGNORECASE):
         raise FeedSecurityError("DTD and entity declarations are not allowed in RSS")
     try:
-        root = ET.fromstring(raw)
-    except (ET.ParseError, RecursionError) as exc:
+        root = ET.fromstring(decoded)
+    except (ET.ParseError, RecursionError, ValueError) as exc:
         raise FeedSecurityError("invalid AISecurity RSS XML") from exc
     _validate_xml_tree(root)
 

@@ -19,6 +19,7 @@ const router = createRouter({
     { path: '/security', name: 'security', component: () => import('@/views/SecurityView.vue'), meta: { title: '安全中心', requiresAuth: true } },
     { path: '/tools', name: 'tools', component: () => import('@/views/ToolsView.vue'), meta: { title: '工具能力', requiresAuth: true } },
     { path: '/audit', name: 'audit', component: () => import('@/views/AuditView.vue'), meta: { title: '审计追踪', requiresAuth: true } },
+    { path: '/attribution', name: 'attribution', component: () => import('@/views/DeceptionView.vue'), meta: { title: '溯源画像', requiresAuth: true } },
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { title: '登录' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

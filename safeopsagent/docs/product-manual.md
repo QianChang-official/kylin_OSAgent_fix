@@ -113,7 +113,7 @@ python3 -m pytest -q
 python3 -m pip install -r backend/requirements-mcp.txt
 ```
 
-安装后 MCP SSE 端点自动挂载到 `/mcp/sse`，无需额外配置。
+安装后 MCP SSE 端点自动挂载到 `/mcp/sse`，并强制复用 FastAPI 的认证边界；不提供独立无认证网络启动模式。
 
 ---
 
@@ -157,7 +157,7 @@ export MODEL_NAME=deepseek-chat
 
 ### 4.1 控制台总览
 
-浏览器访问 `http://<服务器IP>:8000/console/`，五个功能页：
+完成服务端账号、密码校验串和会话密钥配置后访问控制台。本机可使用 `http://127.0.0.1:8000/console/`；跨主机访问必须通过启用 TLS 的反向代理，并设置 `CONSOLE_AUTH_SECURE_COOKIE=1`，不要直接暴露 Uvicorn 端口。
 
 | 页面 | 路径 | 用途 |
 | --- | --- | --- |

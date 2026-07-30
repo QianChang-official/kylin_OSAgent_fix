@@ -5,10 +5,10 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 验证时间 | 2026-07-29 22:39:48 |
+| 验证时间 | 2026-07-31 02:19:23 |
 | 静态不变式 | 5 条 |
-| 运行时不变式 | 5 条 |
-| 扫描文件数 | 53 |
+| 运行时不变式 | 7 条 |
+| 扫描文件数 | 62 |
 | 静态违规 | 0 |
 | 运行时违规 | 0 |
 | **总体结论** | **通过** |
@@ -46,6 +46,8 @@ backend/executor/safe_executor.py:51  subprocess.run
 | INV-R3 | 高危输入必须在模型调用之前被拦截，而非事后否决 | ✅ 成立 |
 | INV-R4 | 所有入口（HTTP /chat、/tools/call、MCP adapter）收敛到同一条安全链路 | ✅ 成立 |
 | INV-R5 | 工具输出中的危险内容必须被二次拦截 | ✅ 成立 |
+| INV-R6 | 欺骗（蜜罐）会话在密码学上无法被验证为真实会话，且只能取得合成数据 | ✅ 成立 |
+| INV-R7 | 受保护的珍贵资产（审计库、溯源证据、控制台）永远不在自动清理可达范围内 | ✅ 成立 |
 
 ### 观测记录
 
@@ -64,6 +66,11 @@ backend/executor/safe_executor.py:51  subprocess.run
 | `MCP adapter` | 工具集一致性 | allow | — | — | `17 tools` |
 | `MCP adapter` | 受保护路径参数 | reject | 否 | 100 | `blocked_invalid_arguments` |
 | `/tools/confirm` | 伪造令牌 | reject | 否 | 100 | `confirmation_token_invalid` |
+
+### 结构性验证
+
+- **INV-R6**：蜜罐令牌与真实令牌使用不同签名子密钥，互相验证均失败
+- **INV-R7**：审计库、溯源证据与控制台构建产物在白名单校验之前即被拒绝
 
 > **环境说明**：标记为 `chat_plan_environment_limited` 的正常请求，是因为当前验证环境缺少对应 Linux 命令（如 `free`、`/proc`），属于运行环境能力受限，**不是安全拦截**。
 > 判定标准是这些请求未被 `reject`——护栏没有误伤它们。在麒麟目标环境重跑时这些行会变为 `allow`。

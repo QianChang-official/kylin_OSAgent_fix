@@ -1,8 +1,19 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+// Public front door. When the entry gate is configured this form is a decoy:
+// the backend answers every credential submitted here as a failure, and a
+// client that keeps guessing is handed a sandbox session whose console is built
+// entirely from synthetic data.
+//
+// The concealed affordance below only *reveals an input*. It is not the secret
+// and carries no security weight — anything shipped to a browser is readable.
+// The passphrase itself is verified server-side against a PBKDF2 record by
+// POST /auth/gate, so reading this bundle reveals nothing usable, and a wrong
+// passphrase is answered as an ordinary 404.
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NAlert, NButton, NIcon, NInput } from 'naive-ui'
 import { Lock, Login, ShieldCheck } from '@vicons/tabler'
+import { api } from '@/api/client'
 import { authState, authenticationEnabled, signIn } from '@/auth/session'
 
 const route = useRoute()
@@ -10,6 +21,10 @@ const router = useRouter()
 const username = ref('')
 const password = ref('')
 const validationError = ref('')
+const unlocked = ref(false)
+const promptOpen = ref(false)
+const passphrase = ref('')
+const passphraseField = ref<InstanceType<typeof NInput> | null>(null)
 
 const error = computed(() => validationError.value || authState.error)
 
@@ -49,12 +64,91 @@ async function submit() {
     password.value = ''
   }
 }
+
+async function submitPassphrase(candidate: string) {
+  const trimmed = candidate.trim()
+  if (trimmed.length < 4) return
+  if (await api.authGate(trimmed)) {
+    unlocked.value = true
+    promptOpen.value = false
+    passphrase.value = ''
+    validationError.value = ''
+    authState.error = ''
+  } else {
+    // Silent on failure: confirming that a gate exists would itself disclose it.
+    passphrase.value = ''
+  }
+}
+
+// Affordance 1: press and hold the brand mark. Reachable by hand, and in the
+// DOM it stays an ordinary decorative element with no distinguishing attribute.
+let holdTimer: ReturnType<typeof setTimeout> | null = null
+
+function beginPress() {
+  cancelPress()
+  holdTimer = setTimeout(() => {
+    promptOpen.value = true
+    requestAnimationFrame(() => passphraseField.value?.focus())
+  }, 900)
+}
+
+function cancelPress() {
+  if (holdTimer) {
+    clearTimeout(holdTimer)
+    holdTimer = null
+  }
+}
+
+// Affordance 2: type the passphrase anywhere outside the visible fields and
+// press Enter. Buffered locally and submitted once, so the gate's attempt
+// budget is spent per submission rather than per keystroke.
+let buffer = ''
+
+function onKey(event: KeyboardEvent) {
+  const tag = document.activeElement?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+  if (event.key === 'Enter') {
+    const candidate = buffer
+    buffer = ''
+    void submitPassphrase(candidate)
+    return
+  }
+  if (event.key === 'Backspace') {
+    buffer = buffer.slice(0, -1)
+    return
+  }
+  if (event.key === 'Escape') {
+    buffer = ''
+    return
+  }
+  if (event.key.length === 1) {
+    buffer = (buffer + event.key).slice(-64)
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  cancelPress()
+  buffer = ''
+})
 </script>
 
 <template>
   <div class="login-page">
     <header class="login-header">
-      <div class="login-brand-mark"><n-icon :component="Lock" :size="22" /></div>
+      <div
+        class="login-brand-mark"
+        @mousedown.prevent="beginPress"
+        @mouseup="cancelPress"
+        @mouseleave="cancelPress"
+        @touchstart.passive="beginPress"
+        @touchend="cancelPress"
+        @touchcancel="cancelPress"
+      >
+        <n-icon :component="Lock" :size="22" />
+      </div>
       <div>
         <strong>SafeOpsAgent</strong>
         <span>安全智能运维控制台</span>
@@ -66,7 +160,7 @@ async function submit() {
         <div class="login-heading">
           <div class="login-heading-icon"><n-icon :component="ShieldCheck" :size="21" /></div>
           <div>
-            <p>Console access</p>
+            <p>{{ unlocked ? 'Operator access' : 'Console access' }}</p>
             <h1 id="login-title">登录控制台</h1>
           </div>
         </div>
@@ -100,6 +194,24 @@ async function submit() {
             show-password-on="click"
           />
 
+          <template v-if="promptOpen && !unlocked">
+            <label for="login-key">运维口令</label>
+            <div class="login-key-row">
+              <n-input
+                id="login-key"
+                ref="passphraseField"
+                v-model:value="passphrase"
+                type="password"
+                placeholder="请输入运维口令"
+                autocomplete="off"
+                :maxlength="512"
+                show-password-on="click"
+                @keyup.enter="submitPassphrase(passphrase)"
+              />
+              <n-button quaternary type="primary" @click="submitPassphrase(passphrase)">确认</n-button>
+            </div>
+          </template>
+
           <n-button
             class="login-submit"
             type="primary"
@@ -114,7 +226,9 @@ async function submit() {
       </section>
     </main>
 
-    <footer class="login-footer">SafeOpsAgent · 受控访问</footer>
+    <footer class="login-footer">
+      <span :class="{ 'footer-open': unlocked }">SafeOpsAgent</span> · 受控访问
+    </footer>
   </div>
 </template>
 
@@ -147,7 +261,14 @@ async function submit() {
   background: #10252b;
 }
 
-.login-brand-mark { width: 40px; height: 40px; }
+.login-brand-mark {
+  width: 40px;
+  height: 40px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .login-heading-icon { width: 38px; height: 38px; }
 .login-header strong,
 .login-header span { display: block; }
@@ -176,13 +297,18 @@ async function submit() {
 .login-panel .n-alert { margin-bottom: 16px; }
 .login-form { display: grid; gap: 9px; }
 .login-form label { margin-top: 4px; color: #aab7bf; font-size: 12px; font-weight: 600; }
+.login-key-row { display: flex; gap: 8px; }
+.login-key-row .n-input { flex: 1; }
 .login-submit { width: 100%; margin-top: 10px; }
 .login-footer { padding: 18px; color: #62717d; font-size: 11px; text-align: center; }
+.footer-open { color: #42c6d7; }
 
 @media (max-width: 520px) {
   .login-header { min-height: 62px; padding: 11px 14px; }
   .login-brand-mark { width: 36px; height: 36px; }
   .login-main { place-items: start center; padding: 22px 14px; }
   .login-panel { padding: 19px; }
+  .login-key-row { flex-direction: column; }
+  .login-key-row .n-button { width: 100%; }
 }
 </style>

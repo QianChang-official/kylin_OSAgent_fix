@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,11 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+# This process-local harness verifies the guardrail rather than console access
+# control. Production remains authenticated by default.
+os.environ["CONSOLE_AUTH_ENABLED"] = "0"
+os.environ["CONSOLE_AUTH_ALLOW_INSECURE_NON_LOOPBACK"] = "1"
 
 from backend.security.invariants import STATIC_INVARIANTS, analyze  # noqa: E402
 
@@ -38,6 +44,8 @@ RUNTIME_INVARIANTS = {
     "INV-R3": "高危输入必须在模型调用之前被拦截，而非事后否决",
     "INV-R4": "所有入口（HTTP /chat、/tools/call、MCP adapter）收敛到同一条安全链路",
     "INV-R5": "工具输出中的危险内容必须被二次拦截",
+    "INV-R6": "欺骗（蜜罐）会话在密码学上无法被验证为真实会话，且只能取得合成数据",
+    "INV-R7": "受保护的珍贵资产（审计库、溯源证据、控制台）永远不在自动清理可达范围内",
 }
 
 # Inputs that must always be refused, whatever the entry point.
@@ -235,12 +243,81 @@ class RuntimeChecker:
             "reason": forged.get("security_reason", ""),
         })
 
+    def check_sandbox_isolation(self) -> None:
+        """INV-R6: a deception session must be inert against the real console."""
+        from backend.security.console_auth import ConsoleAuth, generate_password_hash
+        from backend.security.sandbox_plane import synthetic_response
+
+        auth = ConsoleAuth(
+            enabled=True,
+            username="operator",
+            password_hash=generate_password_hash("invariant probe", iterations=200_000),
+            session_secret="i" * 48,
+        )
+        sandbox_token, sandbox = auth.issue_sandbox_session(600)
+        real_token, _ = auth.issue_session()
+
+        if auth.authenticate(sandbox_token) is not None:
+            self._fail("INV-R6", "蜜罐令牌被真实会话验证器接受，隔离失效")
+        if auth.authenticate_sandbox(real_token) is not None:
+            self._fail("INV-R6", "真实会话令牌被蜜罐验证器接受，域分离失效")
+
+        # The synthetic plane must answer without touching any real subsystem.
+        for path in ("/agent/status", "/tools/list", "/monitor/overview", "/audit/logs"):
+            status, payload = synthetic_response(sandbox.session_id, "GET", path)
+            if status != 200 or not isinstance(payload, dict) or not payload:
+                self._fail("INV-R6", f"合成数据面未能应答 {path}")
+
+        status, payload = synthetic_response(sandbox.session_id, "POST", "/audit/clear")
+        if status != 200 or payload.get("cleared") != 0:
+            self._fail("INV-R6", "蜜罐会话对审计清除的应答不是空操作")
+
+        self.observations.append({
+            "invariant": "INV-R6",
+            "detail": "蜜罐令牌与真实令牌使用不同签名子密钥，互相验证均失败",
+        })
+
+    def check_protected_assets_unreachable(self) -> None:
+        """INV-R7: irreplaceable assets stay outside every cleanup allowlist."""
+        from backend import config
+        from backend.cleanup.service import CleanupError, CleanupService
+
+        service = CleanupService(allowed_roots=tuple(config.PROTECTED_ASSET_PATHS))
+        if service.allowed_roots:
+            self._fail(
+                "INV-R7",
+                f"受保护资产仍出现在清理根中: {[str(item) for item in service.allowed_roots]}",
+            )
+
+        guarded = CleanupService(allowed_roots=("/tmp",))
+        for asset in (
+            config.AUDIT_DB_PATH,
+            config.DECEPTION_EVIDENCE_DIR / "incidents.jsonl",
+            Path(config.BASE_DIR) / "static" / "console" / "index.html",
+        ):
+            if not guarded._is_protected_asset(asset):
+                self._fail("INV-R7", f"珍贵资产未被保护: {asset}")
+
+        try:
+            guarded.scan(str(config.PROJECT_DIR))
+        except CleanupError:
+            pass
+        else:
+            self._fail("INV-R7", "项目目录可被扫描为清理候选")
+
+        self.observations.append({
+            "invariant": "INV-R7",
+            "detail": "审计库、溯源证据与控制台构建产物在白名单校验之前即被拒绝",
+        })
+
     def run(self) -> dict[str, Any]:
         self.check_reject_never_executes()
         self.check_benign_not_blocked()
         self.check_audit_completeness()
         self.check_entry_point_convergence()
         self.check_confirm_cannot_bypass()
+        self.check_sandbox_isolation()
+        self.check_protected_assets_unreachable()
         return {
             "passed": not self.failures,
             "failure_count": len(self.failures),
@@ -326,14 +403,22 @@ def build_report(static: dict[str, Any], runtime: dict[str, Any]) -> str:
         "| 入口 | 场景 | 决策 | 已执行 | 风险分 | 原因 |",
         "| --- | --- | --- | --- | --- | --- |",
     ])
-    for item in runtime["observations"]:
+    request_observations = [item for item in runtime["observations"] if "entry" in item]
+    structural_observations = [item for item in runtime["observations"] if "invariant" in item]
+
+    for item in request_observations:
         executed = "—" if item["executed"] is None else ("是" if item["executed"] else "否")
         risk = "—" if item["risk_score"] is None else item["risk_score"]
         lines.append(
             f"| `{item['entry']}` | {item['case']} | {item['decision']} | {executed} | {risk} | `{item['reason']}` |"
         )
 
-    if any("environment_limited" in str(item["reason"]) for item in runtime["observations"]):
+    if structural_observations:
+        lines.extend(["", "### 结构性验证", ""])
+        for item in structural_observations:
+            lines.append(f"- **{item['invariant']}**：{item['detail']}")
+
+    if any("environment_limited" in str(item["reason"]) for item in request_observations):
         lines.extend([
             "",
             "> **环境说明**：标记为 `chat_plan_environment_limited` 的正常请求，是因为当前验证环境"

@@ -12,6 +12,8 @@ venv/
 # Node
 node_modules/
 .vite/
+safeopsagent/.playwright-cli/
+safeopsagent/output/
 
 # Runtime data — audit / metrics / baselines are generated at run time
 safeopsagent/data/
