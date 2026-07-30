@@ -64,6 +64,24 @@ def test_shell_injection_argument_scores_critical():
     assert result.blocked is True
 
 
+def test_registered_but_unclassified_tool_fails_closed():
+    guardrail = Guardrail()
+    tool_check = guardrail.validate_tool_selection("new_external_tool", ["new_external_tool"])
+    arg_check = guardrail.validate_tool_args("new_external_tool", {})
+
+    result = guardrail.score_100(
+        tool_check=tool_check,
+        arg_check=arg_check,
+        tool_name="new_external_tool",
+        arguments={},
+    )
+
+    assert result.score == 100
+    assert result.security_decision == "reject"
+    assert result.blocked is True
+    assert "unclassified_tool:new_external_tool" in result.matched_rules
+
+
 def test_tools_call_returns_risk_score_fields(monkeypatch):
     monkeypatch.setattr(
         get_registry(),

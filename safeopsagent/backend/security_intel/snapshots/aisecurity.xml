@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Butian AI Security offline snapshot</title>
+    <link>https://forum.butian.net/AISecurity</link>
+    <description>Small reviewed fallback used only when the public RSS feed is unavailable.</description>
+    <item>
+      <guid>https://forum.butian.net/ai_security/260</guid>
+      <title>MCP 工具投毒与链式滥用攻击场景复盘</title>
+      <description>用于工具描述降权、参数重校验和跨工具审计的防御参考。</description>
+      <pubDate>2026-07-23 09:37:14</pubDate>
+    </item>
+    <item>
+      <guid>https://forum.butian.net/ai_security/216</guid>
+      <title>Prompt 中的不可见 Unicode 字符攻击</title>
+      <description>用于输入规范化、不可见字符检测和回归测试。</description>
+      <pubDate>2026-07-01 09:00:00</pubDate>
+    </item>
+  </channel>
+</rss>

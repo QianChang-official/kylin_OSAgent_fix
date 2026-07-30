@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "integrations": [
+    {
+      "id": "openai-codex-security",
+      "name": "OpenAI Codex Security",
+      "source_url": "https://github.com/openai/codex-security",
+      "package": "@openai/codex-security",
+      "pinned_version": "0.1.4",
+      "license": "Apache-2.0",
+      "integration_mode": "external_results_only",
+      "runtime_execution": false,
+      "loongarch_runtime_compatible": false,
+      "accepted_artifacts": [
+        "findings.json",
+        "coverage.json"
+      ],
+      "governance": "Run only in a separately authorized, supported environment. SafeOpsAgent imports bounded summaries from pre-generated artifacts and never launches the CLI."
+    },
+    {
+      "id": "skillguard-cli",
+      "name": "SkillGuard CLI",
+      "source_url": "https://github.com/haha521666-creator/skillguard-cli",
+      "catalog_url": "https://forum.butian.net/ai_tools/683",
+      "pinned_version": "0.1.0",
+      "license": "MIT",
+      "integration_mode": "ci_only",
+      "runtime_execution": false,
+      "version_pin_required": true,
+      "governance": "Use the exact reviewed version in an isolated CI job. Reports require human review; runtime installation or execution by SafeOpsAgent is prohibited."
+    }
+  ],
+  "butian_ai_tools_governance": {
+    "catalog_url": "https://forum.butian.net/AITools",
+    "automatic_full_site_scraping": "prohibited",
+    "catalog_ingestion": "curated_allowlist_only",
+    "tool_installation": "prohibited",
+    "tool_execution": "prohibited",
+    "active_attack_categories": "defensive_reference_only",
+    "requirements": [
+      "Record source, license and an exact reviewed version before adding an integration.",
+      "Do not mirror an entire site or automatically install tools discovered in catalog pages.",
+      "Do not run exploit, phishing, malware, credential attack or unauthorized reconnaissance tools.",
+      "Translate approved material into local defensive controls and deterministic regression cases only."
+    ]
+  },
+  "external_content_policy": {
+    "untrusted": true,
+    "automatic_model_ingestion": false,
+    "raw_instruction_execution": false,
+    "human_review_required": true
+  }
+}

@@ -1,11 +1,16 @@
 import type {
   AgentStatus,
+  AuthCredentials,
+  AuthSession,
   AuditLog,
   ChatResponse,
+  CodexScansResponse,
   HealthResponse,
+  AiSecurityIntelResponse,
   MetricAnomaly,
   MonitorMetrics,
   MonitorOverview,
+  SecurityResources,
   SystemProbe,
   ToolCallResponse,
   ToolDefinition,
@@ -14,6 +19,8 @@ import type {
 
 const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 const DEFAULT_TIMEOUT_MS = 15_000
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+let csrfToken = ''
 
 export class ApiError extends Error {
   readonly status: number
@@ -28,19 +35,29 @@ export class ApiError extends Error {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const method = String(init.method || 'GET').toUpperCase()
+  const headers = new Headers(init.headers)
+  if (init.body != null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json; charset=utf-8')
+  }
+  if (!SAFE_METHODS.has(method) && csrfToken) {
+    headers.set('X-CSRF-Token', csrfToken)
+  }
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        ...(init.headers || {}),
-      },
+      credentials: 'include',
+      headers,
       signal: controller.signal,
     })
     const payload = await response.json().catch(() => null)
     if (!response.ok) {
       const detail = payload?.detail
       throw new ApiError(typeof detail === 'string' ? detail : `请求失败 (${response.status})`, response.status)
+    }
+    if (payload && typeof payload === 'object' && 'csrf_token' in payload) {
+      const nextToken = (payload as { csrf_token?: unknown }).csrf_token
+      csrfToken = typeof nextToken === 'string' ? nextToken : ''
     }
     return payload as T
   } catch (error) {
@@ -58,10 +75,43 @@ function post<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: JSON.stringify(body) })
 }
 
+function parseAuthSession(payload: unknown): AuthSession {
+  if (
+    !payload
+    || typeof payload !== 'object'
+    || typeof (payload as { enabled?: unknown }).enabled !== 'boolean'
+    || typeof (payload as { authenticated?: unknown }).authenticated !== 'boolean'
+  ) {
+    throw new ApiError('后端返回了无效的认证状态。')
+  }
+
+  const session = payload as Partial<AuthSession>
+  return {
+    enabled: session.enabled as boolean,
+    authenticated: session.authenticated as boolean,
+    username: typeof session.username === 'string' ? session.username : null,
+    expires_at: typeof session.expires_at === 'number' ? session.expires_at : null,
+    csrf_token: typeof session.csrf_token === 'string' ? session.csrf_token : null,
+  }
+}
+
 export const api = {
+  authSession: async () => parseAuthSession(await request<unknown>('/auth/session')),
+  authLogin: async (credentials: AuthCredentials) => (
+    parseAuthSession(await post<unknown>('/auth/login', credentials))
+  ),
+  authLogout: async () => {
+    await post<unknown>('/auth/logout', {})
+    csrfToken = ''
+  },
   health: () => request<HealthResponse>('/health'),
   agentStatus: () => request<AgentStatus>('/agent/status'),
   systemProbe: () => request<SystemProbe>('/system/probe'),
+  securityResources: () => request<SecurityResources>('/security/resources'),
+  aiSecurityIntel: (limit = 8) =>
+    request<AiSecurityIntelResponse>(`/security/intel/aisecurity?limit=${Math.max(1, Math.min(limit, 50))}`),
+  codexScans: (limit = 20) =>
+    request<CodexScansResponse>(`/security/codex/scans?limit=${Math.max(1, Math.min(limit, 100))}`),
   chat: (message: string, sessionId: string) =>
     post<ChatResponse>('/chat', { message, session_id: sessionId }),
   tools: async () => (await request<{ tools: ToolDefinition[] }>('/tools/list')).tools,

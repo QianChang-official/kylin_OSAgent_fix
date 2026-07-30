@@ -1,9 +1,9 @@
 """FastAPI backend — REST API for SafeOpsAgent."""
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Any
 import json
@@ -18,8 +18,17 @@ from backend.tools.registry import get_registry, ToolResult
 from backend.audit.logger import get_logger
 from backend.monitoring import get_monitoring_service
 from backend.osprobe.probe import run_probe
+from backend.security.codex_results import CodexResultError, CodexResultStore
+from backend.security.console_auth import (
+    AuthConfigurationError,
+    ConsoleAuth,
+    ConsoleIdentity,
+)
 from backend.security.guardrail import Guardrail
+from backend.security.ai_resources import security_resources_payload
 from backend.security.rule_labels import flatten_rule_hits, label_rules
+from backend.security_intel import load_aisecurity_feed, load_integration_catalog
+from backend.security_intel.rss import load_aisecurity_snapshot
 from backend.llm.domestic_model_gateway import resolve_model_config
 
 # Register all tools
@@ -56,6 +65,22 @@ disk_io_tool.register()
 impact_tool.register()
 
 APP_VERSION = "1.3.0"
+SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _build_console_auth() -> ConsoleAuth:
+    return ConsoleAuth(
+        enabled=config.CONSOLE_AUTH_ENABLED,
+        username=config.CONSOLE_AUTH_USERNAME,
+        password_hash=config.CONSOLE_AUTH_PASSWORD_HASH,
+        session_secret=config.CONSOLE_AUTH_SESSION_SECRET,
+        session_ttl_seconds=config.CONSOLE_AUTH_SESSION_TTL_SECONDS,
+        login_attempt_limit=config.CONSOLE_LOGIN_ATTEMPT_LIMIT,
+        login_window_seconds=config.CONSOLE_LOGIN_WINDOW_SECONDS,
+    )
+
+
+_console_auth = _build_console_auth()
 
 
 @asynccontextmanager
@@ -65,6 +90,7 @@ async def lifespan(_app: FastAPI):
     Importing the app (tests, tooling) must not spawn background threads,
     so this deliberately lives in lifespan rather than at module scope.
     """
+    _console_auth.require_configuration()
     get_monitoring_service().start()
     yield
     get_monitoring_service().stop()
@@ -73,11 +99,38 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="SafeOpsAgent", version=APP_VERSION, lifespan=lifespan)
 CONSOLE_DIST_DIR = Path(__file__).resolve().parent / "static" / "console"
 
+
+@app.middleware("http")
+async def enforce_console_auth(request: Request, call_next):
+    if _is_public_route(request.url.path) or request.method == "OPTIONS":
+        return await call_next(request)
+
+    try:
+        _console_auth.require_configuration()
+    except AuthConfigurationError:
+        return _auth_error(503, "Console authentication is not configured")
+
+    identity = _request_identity(request)
+    if identity is None:
+        return _auth_error(401, "Authentication required")
+    if (
+        _console_auth.enabled
+        and request.method.upper() not in SAFE_HTTP_METHODS
+        and not _console_auth.verify_csrf(identity, request.headers.get("X-CSRF-Token", ""))
+    ):
+        return _auth_error(403, "CSRF validation failed")
+    request.state.console_identity = identity
+    return await call_next(request)
+
+
+# CORS remains outside the authentication middleware so browser clients also
+# receive policy headers on 401/403 responses.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(config.CORS_ALLOWED_ORIGINS),
+    allow_credentials=True,
+    allow_methods=["GET", "HEAD", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-CSRF-Token"],
 )
 
 # Optional MCP SSE transport (requires mcp SDK, see backend/requirements-mcp.txt).
@@ -119,9 +172,155 @@ class ToolConfirmRequest(BaseModel):
     session_id: str = ""
 
 
+class AuthCredentials(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=512)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "agent": "SafeOpsAgent", "version": APP_VERSION}
+
+
+def _is_public_route(path: str) -> bool:
+    return (
+        path == "/health"
+        or path == "/favicon.ico"
+        or path in {"/auth/session", "/auth/login"}
+        or path == "/console"
+        or path.startswith("/console/")
+    )
+
+
+def _auth_error(status_code: int, detail: str) -> JSONResponse:
+    headers = {"Cache-Control": "no-store"}
+    if status_code == 401:
+        headers["WWW-Authenticate"] = "Cookie"
+    return JSONResponse(status_code=status_code, content={"detail": detail}, headers=headers)
+
+
+def _request_identity(request: Request) -> ConsoleIdentity | None:
+    token = request.cookies.get(config.CONSOLE_AUTH_COOKIE_NAME, "")
+    return _console_auth.authenticate(token)
+
+
+def _client_key(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _auth_session_payload(identity: ConsoleIdentity | None = None) -> dict[str, Any]:
+    authenticated = identity is not None
+    return {
+        "enabled": _console_auth.enabled,
+        "authenticated": authenticated,
+        "username": identity.username if identity else None,
+        "expires_at": identity.expires_at if identity and identity.expires_at else None,
+        "csrf_token": identity.csrf_token if identity and identity.csrf_token else None,
+    }
+
+
+def _clear_auth_cookie(response: JSONResponse) -> None:
+    response.delete_cookie(
+        config.CONSOLE_AUTH_COOKIE_NAME,
+        path="/",
+        secure=config.CONSOLE_AUTH_SECURE_COOKIE,
+        httponly=True,
+        samesite="strict",
+    )
+
+
+def _audit_auth_event(request: Request, event: str, decision: str, reason: str) -> None:
+    """Record authentication decisions without storing submitted credentials."""
+    rejected = decision != "allow"
+    get_logger().log({
+        "request_id": str(uuid.uuid4())[:8],
+        "user_input": event,
+        "intent": "console_auth",
+        "tool_arguments": {"client": _client_key(request)},
+        "risk_level": 3 if rejected else 1,
+        "risk_score": 100 if rejected else 10,
+        "risk_level_text": "high" if rejected else "low",
+        "legacy_risk_level": 3 if rejected else 1,
+        "security_decision": decision,
+        "security_reason": reason,
+        "confirmation_required": False,
+        "executed": False,
+        "execution_success": False,
+        "final_response": reason,
+    })
+
+
+@app.get("/auth/session", include_in_schema=False)
+def auth_session(request: Request):
+    try:
+        _console_auth.require_configuration()
+    except AuthConfigurationError as exc:
+        raise HTTPException(status_code=503, detail="Console authentication is not configured") from exc
+    response = JSONResponse(_auth_session_payload(_request_identity(request)))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/auth/login", include_in_schema=False)
+def auth_login(request: Request, credentials: AuthCredentials):
+    try:
+        _console_auth.require_configuration()
+    except AuthConfigurationError as exc:
+        raise HTTPException(status_code=503, detail="Console authentication is not configured") from exc
+
+    if not _console_auth.enabled:
+        return JSONResponse(
+            _auth_session_payload(_console_auth.authenticate("")),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    client_key = _client_key(request)
+    if not _console_auth.attempts_allowed(client_key):
+        _audit_auth_event(request, "console_login", "reject", "login_rate_limited")
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many login attempts"},
+            headers={
+                "Cache-Control": "no-store",
+                "Retry-After": str(_console_auth.login_window_seconds),
+            },
+        )
+    if not _console_auth.verify_credentials(credentials.username, credentials.password):
+        _console_auth.record_failed_attempt(client_key)
+        _audit_auth_event(request, "console_login", "reject", "invalid_credentials")
+        return _auth_error(401, "Invalid username or password")
+
+    _console_auth.clear_attempts(client_key)
+    token, identity = _console_auth.issue_session()
+    response = JSONResponse(
+        _auth_session_payload(identity),
+        headers={"Cache-Control": "no-store"},
+    )
+    response.set_cookie(
+        config.CONSOLE_AUTH_COOKIE_NAME,
+        token,
+        max_age=_console_auth.session_ttl_seconds,
+        path="/",
+        secure=config.CONSOLE_AUTH_SECURE_COOKIE,
+        httponly=True,
+        samesite="strict",
+    )
+    _audit_auth_event(request, "console_login", "allow", "authenticated")
+    return response
+
+
+@app.post("/auth/logout", include_in_schema=False)
+def auth_logout(request: Request):
+    identity = getattr(request.state, "console_identity", None)
+    _audit_auth_event(request, "console_logout", "allow", "session_terminated")
+    response = JSONResponse(
+        _auth_session_payload(None if _console_auth.enabled else identity),
+        headers={"Cache-Control": "no-store"},
+    )
+    _clear_auth_cookie(response)
+    return response
 
 
 def _console_response(asset_path: str = "") -> FileResponse:
@@ -199,6 +398,69 @@ def agent_status():
         "security_summary": "安全护栏已启用，模型不能直接执行系统命令。",
         "deployment_hint": "当前为用户态安全 Agent，不修改系统内核；无 API Key 时自动使用离线安全模式。",
     }
+
+
+@app.get("/security/resources")
+def security_resources():
+    return security_resources_payload()
+
+
+@app.get("/security/integrations")
+def security_integrations():
+    """Expose the reviewed local registry; this endpoint never installs tools."""
+    return load_integration_catalog()
+
+
+@app.get("/security/intel/aisecurity")
+def aisecurity_intel(limit: int = 20, refresh: bool = False):
+    """Return sanitized, untrusted RSS metadata with deterministic mappings."""
+    feed = load_aisecurity_feed(timeout_seconds=3.0) if refresh else load_aisecurity_snapshot()
+    bounded_limit = _safe_limit(limit, default=20, maximum=40)
+    feed["items"] = feed.get("items", [])[:bounded_limit]
+    return feed
+
+
+def _codex_result_store() -> CodexResultStore | None:
+    if not config.CODEX_SECURITY_RESULTS_DIR:
+        return None
+    try:
+        return CodexResultStore(
+            Path(config.CODEX_SECURITY_RESULTS_DIR),
+            config.PROJECT_DIR,
+        )
+    except (CodexResultError, OSError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Codex Security result directory is unavailable",
+        ) from exc
+
+
+@app.get("/security/codex/scans")
+def codex_security_scans(limit: int = 20):
+    store = _codex_result_store()
+    if store is None:
+        return {"configured": False, "scans": []}
+    return {
+        "configured": True,
+        "scans": store.list_scans(limit=_safe_limit(limit, default=20, maximum=100)),
+    }
+
+
+@app.get("/security/codex/scans/{scan_id}")
+def codex_security_scan(scan_id: str, finding_limit: int = 100):
+    store = _codex_result_store()
+    if store is None:
+        raise HTTPException(status_code=503, detail="Codex Security result directory is not configured")
+    try:
+        return store.load(
+            scan_id,
+            finding_limit=_safe_limit(finding_limit, default=100, maximum=200),
+        )
+    except CodexResultError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Codex Security scan failed containment or integrity validation",
+        ) from exc
 
 
 @app.get("/tools/list")

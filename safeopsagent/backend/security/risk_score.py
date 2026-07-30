@@ -90,7 +90,12 @@ class RiskScorer:
         score = max(base_scores or [10])
 
         if tool_name:
-            tool_base = self.TOOL_BASE_SCORE.get(tool_name, 30)
+            if tool_name not in self.TOOL_BASE_SCORE:
+                tool_base = 100
+                matched_rules.append(f"unclassified_tool:{tool_name}")
+                factors.append(f"unclassified_tool:{tool_name}:100")
+            else:
+                tool_base = self.TOOL_BASE_SCORE[tool_name]
             if tool_base > score:
                 factors.append(f"tool_base:{tool_name}:{tool_base}")
             score = max(score, tool_base)

@@ -24,6 +24,7 @@ export default defineConfig({
       '/chat': 'http://127.0.0.1:8000',
       '/tools': 'http://127.0.0.1:8000',
       '/audit': 'http://127.0.0.1:8000',
+      '/auth': 'http://127.0.0.1:8000',
     },
   },
 })
