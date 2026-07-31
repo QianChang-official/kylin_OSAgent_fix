@@ -19,8 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .registry import ToolSchema, ToolResult, get_registry
-
+from .registry import ToolResult, ToolSchema, get_registry
 
 CRITICAL_CONFIG_PATHS = [
     "/etc/ssh/sshd_config",
@@ -249,13 +248,13 @@ def _compare_baseline(baseline: dict[str, Any], current: list[dict[str, Any]]) -
             "current_sha256": curr.get("sha256"),
             "baseline_mode": base.get("mode"),
             "current_mode": curr.get("mode"),
-            "note": _drift_note(path, changes, is_sensitive),
+            "note": _drift_note(changes, is_sensitive),
         })
 
     return drifts
 
 
-def _drift_note(path: str, changes: list[str], sensitive: bool) -> str:
+def _drift_note(changes: list[str], sensitive: bool) -> str:
     parts = []
     if "content_modified" in changes:
         parts.append("内容已修改")

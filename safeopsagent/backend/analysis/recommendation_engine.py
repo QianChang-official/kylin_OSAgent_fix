@@ -5,11 +5,11 @@ severity, findings, and recommendations returned by the public API.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from .root_cause_engine import build_root_cause_chains
-
 
 SEVERITY_ORDER = {
     "unknown": 0,
@@ -540,7 +540,6 @@ def _zombie_process(builder: DiagnosisBuilder, data: Any) -> None:
         return
     count = _number(data.get("zombie_count")) or 0
     builder.metric("zombie_process_count", int(count), "processes", "zombie_process_check")
-    zombies = data.get("zombies") if isinstance(data.get("zombies"), list) else []
     parents = data.get("parents") if isinstance(data.get("parents"), list) else []
     if count == 0:
         builder.finding("未发现僵尸进程，进程回收状态正常。", "normal")

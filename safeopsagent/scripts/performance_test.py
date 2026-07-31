@@ -16,6 +16,8 @@ Environment overrides:
 """
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import platform
 import statistics
@@ -30,6 +32,16 @@ from fastapi.testclient import TestClient
 # Ensure backend is importable when run from project root.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+# Without this the console-authenticated endpoints answer 503 "Console
+# authentication is not configured", and the run silently measures the latency
+# of rejections instead of real work. Same process-local harness setting used
+# by scripts/verify_invariants.py and backend/tests/conftest.py; production
+# remains authenticated by default.
+os.environ.setdefault("CONSOLE_AUTH_ENABLED", "0")
+os.environ.setdefault("CONSOLE_AUTH_ALLOW_INSECURE_NON_LOOPBACK", "1")
+os.environ.setdefault("MODEL_PROVIDER", "offline_safe")
+os.environ.setdefault("MONITOR_SAMPLING_ENABLED", "0")
 
 from backend.app import app  # noqa: E402
 from backend.security.guardrail import Guardrail  # noqa: E402
@@ -321,12 +333,12 @@ def generate_report(sequential: dict, concurrent: list[dict], guardrail: dict) -
         "| 项目 | 内容 |",
         "| --- | --- |",
         f"| 测试时间 | {now} |",
-        f"| 被测系统 | SafeOpsAgent 安全智能运维 Agent |",
-        f"| 运行模式 | offline_safe（离线安全规划器，无外部模型依赖） |",
+        "| 被测系统 | SafeOpsAgent 安全智能运维 Agent |",
+        "| 运行模式 | offline_safe（离线安全规划器，无外部模型依赖） |",
         f"| 操作系统 | {platform.system()} {platform.release()} |",
         f"| CPU 架构 | {platform.machine()} |",
         f"| Python 版本 | {platform.python_version()} |",
-        f"| 测试工具 | `scripts/performance_test.py`（FastAPI TestClient 同源调用） |",
+        "| 测试工具 | `scripts/performance_test.py`（FastAPI TestClient 同源调用） |",
         f"| 进程峰值内存 | {memory_text} |",
         "",
         "## 1. 测试目标",
@@ -413,7 +425,7 @@ def generate_report(sequential: dict, concurrent: list[dict], guardrail: dict) -
         f"| 5xx 服务端错误 | {sum(m['errors'] for m in sequential.values()) + sum(m['errors'] for m in concurrent)} |",
         f"| 最低接口成功率 | {min(m['success_rate'] for m in sequential.values())}% |",
         f"| 进程峰值内存 | {memory_text} |",
-        f"| 外部依赖 | 无（offline_safe 模式不调用外部模型 API） |",
+        "| 外部依赖 | 无（offline_safe 模式不调用外部模型 API） |",
         "",
         "## 7. 结论",
         "",
@@ -447,6 +459,15 @@ def generate_report(sequential: dict, concurrent: list[dict], guardrail: dict) -
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--budget", metavar="FILE",
+                        help="校验结果是否满足预算文件里的门槛，超出则非零退出")
+    parser.add_argument("--json", metavar="FILE",
+                        help="把原始测量结果写到 JSON，供归档与回归比对")
+    parser.add_argument("--no-report", action="store_true",
+                        help="不重写 docs/performance-test-report.md")
+    args = parser.parse_args()
+
     print("SafeOpsAgent performance test starting...")
     print(f"  sequential samples per endpoint: {SAMPLES}")
     print(f"  concurrency levels: {CONCURRENCY_LEVELS} ({CONC_TOTAL} requests each)")
@@ -454,9 +475,19 @@ def main() -> None:
     concurrent = run_concurrent()
     print("  [micro] guardrail pre-check ...", flush=True)
     guardrail = measure_guardrail_overhead()
-    report = generate_report(sequential, concurrent, guardrail)
 
-    print(f"\nPerformance report written to: {report}")
+    report = None
+    if not args.no_report:
+        report = generate_report(sequential, concurrent, guardrail)
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(
+            {"sequential": sequential, "concurrent": concurrent, "guardrail": guardrail},
+            ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\nRaw measurements written to: {args.json}")
+
+    if report:
+        print(f"\nPerformance report written to: {report}")
     print("\nSequential summary:")
     for name, m in sequential.items():
         print(f"  {name}: avg={m['avg_ms']}ms p95={m['p95_ms']}ms qps={m['qps']} success={m['success_rate']}%")
@@ -465,6 +496,67 @@ def main() -> None:
         print(f"  c={m['concurrency']}: qps={m['qps']} p95={m['p95_ms']}ms success={m['success_rate']}%")
     print("\nGuardrail pre-check:")
     print(f"  normal avg={guardrail['normal_avg_ms']}ms  danger avg={guardrail['danger_avg_ms']}ms")
+
+    failures = _check_measurements_are_meaningful(sequential, concurrent)
+    if args.budget:
+        failures.extend(_check_budget(Path(args.budget), sequential, concurrent, guardrail))
+
+    if failures:
+        print("\n性能门禁未通过:")
+        for line in failures:
+            print(f"  - {line}")
+        raise SystemExit(1)
+    print("\n性能门禁通过。")
+
+
+def _check_measurements_are_meaningful(sequential: dict, concurrent: list[dict]) -> list[str]:
+    """成功率不足就说明在测失败响应，这时的延迟与吞吐数字没有意义。
+
+    这道检查存在的原因是它真的发生过：脚本未配置控制台认证时，除 /health
+    外所有端点返回 503，报告照样生成，数字全是拒绝响应的延迟。
+    """
+    failures = []
+    for name, m in sequential.items():
+        if m["success_rate"] < 99.0:
+            failures.append(
+                f"{name} 成功率 {m['success_rate']}%，测到的是失败响应而非真实处理")
+    for m in concurrent:
+        if m["success_rate"] < 99.0:
+            failures.append(
+                f"并发 c={m['concurrency']} 成功率 {m['success_rate']}%，同上")
+    return failures
+
+
+def _check_budget(budget_path: Path, sequential: dict, concurrent: list[dict],
+                  guardrail: dict) -> list[str]:
+    """按预算文件核对本次测量，超出门槛即失败。
+
+    预算是在记录主机上实测后留出余量得到的，是回归护栏，不是服务等级承诺：
+    换一台机器、换一个 Python 版本，绝对值都会变。
+    """
+    budget = json.loads(budget_path.read_text(encoding="utf-8"))
+    failures = []
+
+    for name, limit in budget.get("sequential_p95_ms", {}).items():
+        measured = sequential.get(name)
+        if measured is None:
+            failures.append(f"预算里的端点 {name!r} 未被本次测量覆盖")
+        elif measured["p95_ms"] > limit:
+            failures.append(f"{name} p95 {measured['p95_ms']}ms > 预算 {limit}ms")
+
+    conc_floor = budget.get("concurrent_min_qps", {})
+    for m in concurrent:
+        limit = conc_floor.get(str(m["concurrency"]))
+        if limit is not None and m["qps"] < limit:
+            failures.append(f"并发 c={m['concurrency']} qps {m['qps']} < 预算 {limit}")
+
+    guard_limit = budget.get("guardrail_max_avg_ms")
+    if guard_limit is not None:
+        worst = max(guardrail["normal_avg_ms"], guardrail["danger_avg_ms"])
+        if worst > guard_limit:
+            failures.append(f"护栏预检 avg {worst}ms > 预算 {guard_limit}ms")
+
+    return failures
 
 
 if __name__ == "__main__":

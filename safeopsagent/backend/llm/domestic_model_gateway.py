@@ -7,15 +7,15 @@ executes tools and never exposes credentials through its public metadata.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 
 import httpx
 
 from backend import config
 from backend.llm.mock_provider import MockProvider
 from backend.llm.openai_compatible_provider import OpenAICompatibleProvider
-
 
 DEFAULT_API_BASES = {
     "deepseek": "https://api.deepseek.com",

@@ -1,8 +1,8 @@
 """MCP-style Tool Registry — discoverable, schema-validated, auditable."""
-from typing import Any, Callable, Dict, Optional
-from dataclasses import dataclass, field
-import json
 import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -24,8 +24,8 @@ class ToolResult:
 
 class ToolRegistry:
     def __init__(self):
-        self._tools: Dict[str, ToolSchema] = {}
-        self._handlers: Dict[str, Callable] = {}
+        self._tools: dict[str, ToolSchema] = {}
+        self._handlers: dict[str, Callable] = {}
 
     def register(self, schema: ToolSchema, handler: Callable) -> None:
         self._tools[schema.name] = schema
@@ -37,7 +37,7 @@ class ToolRegistry:
             for s in self._tools.values()
         ]
 
-    def get_schema(self, name: str) -> Optional[ToolSchema]:
+    def get_schema(self, name: str) -> ToolSchema | None:
         return self._tools.get(name)
 
     def validate_args(self, name: str, args: dict) -> tuple:

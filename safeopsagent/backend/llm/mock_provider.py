@@ -4,7 +4,6 @@ from typing import Any
 
 from backend.llm.base import ToolSuggestion
 
-
 SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,64}$")
 DANGEROUS_PATTERNS = [
     "rm -rf /",

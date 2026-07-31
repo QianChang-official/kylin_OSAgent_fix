@@ -1,0 +1,41 @@
+{
+  "_note": "门槛由记录主机实测值乘余量得出，是回归护栏，不是服务等级承诺。换主机或换 Python 版本绝对值都会变。",
+  "_recorded_on": "windows-11 / python-3.14 / 本地开发机",
+  "_headroom": "p95 门槛 = 实测 x6；qps 下限 = 实测 x0.35",
+  "_measured": {
+    "sequential_p95_ms": {
+      "GET /health": 2.55,
+      "GET /agent/status": 2.54,
+      "GET /tools/list": 2.71,
+      "GET /audit/logs": 7.57,
+      "POST /chat 正常只读": 20.38,
+      "POST /chat 危险拦截": 16.2,
+      "POST /chat 配置漂移": 16.18,
+      "POST /chat 联合诊断": 22.31
+    },
+    "concurrent_qps": {
+      "1": 52.9,
+      "4": 71.5,
+      "8": 71.2,
+      "16": 69.9
+    },
+    "guardrail_avg_ms": 0.1619
+  },
+  "sequential_p95_ms": {
+    "GET /health": 15,
+    "GET /agent/status": 15,
+    "GET /tools/list": 16,
+    "GET /audit/logs": 45,
+    "POST /chat 正常只读": 122,
+    "POST /chat 危险拦截": 97,
+    "POST /chat 配置漂移": 97,
+    "POST /chat 联合诊断": 134
+  },
+  "concurrent_min_qps": {
+    "1": 18.5,
+    "4": 25.0,
+    "8": 24.9,
+    "16": 24.5
+  },
+  "guardrail_max_avg_ms": 1.3
+}

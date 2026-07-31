@@ -1,9 +1,7 @@
 from fastapi.testclient import TestClient
 
-from backend import app as app_module
 from backend.app import app
 from backend.tools.registry import ToolResult, get_registry
-
 
 client = TestClient(app)
 

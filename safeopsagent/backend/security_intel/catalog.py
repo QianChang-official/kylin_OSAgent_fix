@@ -6,7 +6,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-
 _CATALOG_PATH = Path(__file__).with_name("integration_catalog.json")
 _MAX_CATALOG_BYTES = 32 * 1024
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 from backend import config
 from backend.llm.domestic_model_gateway import (
@@ -34,10 +34,10 @@ class DeepSeekClient:
 
     def chat(
         self,
-        messages: List[Dict],
-        tools: List[Dict],
+        messages: list[dict],
+        tools: list[dict],
         require_json: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         del require_json  # JSON planning is always enforced by the gateway.
         if self._use_mock():
             return self._offline_result(messages, tools)
@@ -64,13 +64,13 @@ class DeepSeekClient:
 
     def _offline_result(
         self,
-        messages: List[Dict],
-        tools: List[Dict],
+        messages: list[dict],
+        tools: list[dict],
         fallback_reason: str = "offline_safe_configured",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return self.gateway.offline_result(messages, tools, fallback_reason)
 
-    def _fallback_no_api(self, tools: List[Dict]) -> Dict[str, Any]:
+    def _fallback_no_api(self, tools: list[dict]) -> dict[str, Any]:
         del tools
         return {
             "tool": "none",

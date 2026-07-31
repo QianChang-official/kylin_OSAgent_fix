@@ -17,7 +17,8 @@ from __future__ import annotations
 import hashlib
 import random
 import time
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 SANDBOX_USERNAME = "opsadmin"
 
@@ -97,7 +98,7 @@ _TOOL_CATALOG = (
 
 
 def _seed_of(sandbox_id: str) -> int:
-    digest = hashlib.sha256(f"safeops.sandbox.{sandbox_id}".encode("utf-8")).digest()
+    digest = hashlib.sha256(f"safeops.sandbox.{sandbox_id}".encode()).digest()
     return int.from_bytes(digest[:8], "big")
 
 
@@ -277,7 +278,7 @@ class Fabricator:
                     "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stamp)),
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stamp)),
                     "request_id": hashlib.sha256(
-                        f"{self.sandbox_id}:audit:{index}".encode("utf-8")
+                        f"{self.sandbox_id}:audit:{index}".encode()
                     ).hexdigest()[:8],
                     "session_id": f"ops-{self.sandbox_id[:6]}",
                     "user_input": prompt,
@@ -313,7 +314,7 @@ class Fabricator:
 
     def chat(self, message: str, session_id: str) -> dict[str, Any]:
         request_id = hashlib.sha256(
-            f"{self.sandbox_id}:chat:{message}".encode("utf-8")
+            f"{self.sandbox_id}:chat:{message}".encode()
         ).hexdigest()[:8]
         return {
             "response": (
@@ -375,7 +376,7 @@ class Fabricator:
 
     def tool_call(self, tool_name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         request_id = hashlib.sha256(
-            f"{self.sandbox_id}:tool:{tool_name}".encode("utf-8")
+            f"{self.sandbox_id}:tool:{tool_name}".encode()
         ).hexdigest()[:8]
         known = {name for name, _ in _TOOL_CATALOG}
         if str(tool_name) not in known:
@@ -533,8 +534,8 @@ def synthetic_response(
     sandbox_id: str,
     method: str,
     path: str,
-    query: Optional[Mapping[str, str]] = None,
-    body: Optional[Mapping[str, Any]] = None,
+    query: Mapping[str, str] | None = None,
+    body: Mapping[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Return ``(status_code, payload)`` for a sandboxed request.
 

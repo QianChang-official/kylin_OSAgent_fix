@@ -5,8 +5,6 @@ this failure?", not just "what is broken right now?".
 """
 import time
 
-import pytest
-
 from backend.analysis.change_log import ChangeLog, infer_service
 from backend.analysis.root_cause_engine import build_root_cause_chains
 

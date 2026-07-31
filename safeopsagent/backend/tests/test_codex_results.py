@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import app as app_module
+from backend.security import codex_results as codex_results_module
 from backend.security.codex_results import (
     MAX_JSON_CONTAINER_ITEMS,
     MAX_JSON_DEPTH,
@@ -14,7 +15,6 @@ from backend.security.codex_results import (
     CodexResultError,
     CodexResultStore,
 )
-from backend.security import codex_results as codex_results_module
 
 
 def _write_json(path: Path, payload: dict) -> str:

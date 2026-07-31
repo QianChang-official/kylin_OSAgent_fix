@@ -3,8 +3,8 @@ import getpass
 import os
 import subprocess
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional
 
 from backend import config
 from backend.executor.command_spec import CommandResult
@@ -13,11 +13,11 @@ from backend.executor.command_spec import CommandResult
 class SafeExecutor:
     def __init__(
         self,
-        allowlist: Optional[Iterable[str]] = None,
-        denylist: Optional[Iterable[str]] = None,
-        timeout: Optional[int] = None,
-        max_output_bytes: Optional[int] = None,
-        max_output_lines: Optional[int] = None,
+        allowlist: Iterable[str] | None = None,
+        denylist: Iterable[str] | None = None,
+        timeout: int | None = None,
+        max_output_bytes: int | None = None,
+        max_output_lines: int | None = None,
     ):
         self.allowlist = {c.lower() for c in (allowlist or config.COMMAND_WHITELIST)}
         self.denylist = {c.lower() for c in (denylist or config.COMMAND_DENYLIST)}
@@ -29,7 +29,7 @@ class SafeExecutor:
             max_output_lines if max_output_lines is not None else config.EXEC_MAX_OUTPUT_LINES
         )
 
-    def run(self, command: list[str], timeout: Optional[int] = None) -> CommandResult:
+    def run(self, command: list[str], timeout: int | None = None) -> CommandResult:
         started = time.perf_counter()
         executor_user = self._executor_user()
         valid_command, validation_error = self._validate_command(command)
@@ -188,7 +188,7 @@ class SafeExecutor:
     def _result(
         self,
         success: bool,
-        returncode: Optional[int],
+        returncode: int | None,
         stdout: str,
         stderr: str,
         command: list[str],

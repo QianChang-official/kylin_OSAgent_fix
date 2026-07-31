@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import backend.cleanup.service as cleanup_service_module
 from backend import app as app_module
 from backend.audit.logger import AuditLogger
 from backend.cleanup.service import CleanupError, CleanupService
-import backend.cleanup.service as cleanup_service_module
 
 
 def _old_file(path, content="temporary"):

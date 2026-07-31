@@ -5,7 +5,6 @@ from backend.agent.orchestrator import AgentOrchestrator
 from backend.app import app
 from backend.tools.registry import ToolResult
 
-
 client = TestClient(app)
 
 

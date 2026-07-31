@@ -41,3 +41,10 @@ safeopsagent/data/
 /上下文压缩.txt
 /SafeOpsAgent*.html
 /safeopsagent.zip
+
+# Coverage data
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+perf-measurements.json

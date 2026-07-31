@@ -3,11 +3,12 @@
 Covers competition scenario pain points "zombie process accumulation"
 and "disk I/O anomaly".
 """
-import pytest
 
-from backend.tools.zombie_process_tool import _zombie_process_check, register as register_zombie
-from backend.tools.disk_io_tool import _disk_io_analysis, _parse_iostat, register as register_disk_io
+from backend.tools.disk_io_tool import _disk_io_analysis, _parse_iostat
+from backend.tools.disk_io_tool import register as register_disk_io
 from backend.tools.registry import get_registry
+from backend.tools.zombie_process_tool import _zombie_process_check
+from backend.tools.zombie_process_tool import register as register_zombie
 
 
 class _FakeResult:

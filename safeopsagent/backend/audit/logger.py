@@ -10,7 +10,6 @@ from threading import Lock
 from backend import config
 from backend.audit import chain
 
-
 AUDIT_V2_COLUMNS = {
     "risk_score": "INTEGER",
     "risk_level_text": "TEXT",

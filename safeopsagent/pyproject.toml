@@ -82,7 +82,11 @@ ignore = [
   "RUF001",  # 中文注释里的全角标点是有意为之
   "RUF002",
   "RUF003",
+  "RUF005",  # a + [b] 改写为 [*a, b] 属纯风格，无缺陷价值
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"backend/tests/*" = ["ARG001", "ARG002", "B011"]
+# 测试替身的 lambda 与桩方法按被替换对象的签名接收参数，用不上是正常的。
+"backend/tests/*" = ["ARG001", "ARG002", "ARG005", "B011"]
+# 安全对抗基准内嵌一个 AuditLogger 桩，同理。
+"backend/security/benchmark.py" = ["ARG002"]

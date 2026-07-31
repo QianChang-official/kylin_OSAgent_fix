@@ -2,8 +2,8 @@
 import re
 
 from backend.executor import SafeExecutor
-from .registry import ToolSchema, ToolResult, command_audit, get_registry
 
+from .registry import ToolResult, ToolSchema, command_audit, get_registry
 
 _executor = SafeExecutor()
 SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,64}$")

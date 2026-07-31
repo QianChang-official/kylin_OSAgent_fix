@@ -11,7 +11,6 @@ from backend.llm.domestic_model_gateway import (
     resolve_model_config,
 )
 
-
 SENTINEL = "unit-test-secret-never-expose"
 TOOLS = [
     {

@@ -4,7 +4,6 @@ from backend.app import app
 from backend.security.guardrail import Guardrail
 from backend.tools.registry import ToolResult, get_registry
 
-
 client = TestClient(app)
 
 

@@ -20,7 +20,6 @@ from typing import Any
 
 from backend import config
 
-
 QUARANTINE_DIR_NAME = ".safeopsagent-quarantine"
 PLAN_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 FORBIDDEN_CLEANUP_ROOTS = {

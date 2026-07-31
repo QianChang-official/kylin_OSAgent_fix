@@ -163,7 +163,7 @@ class MetricCollector:
             class _FileTime(ctypes.Structure):
                 _fields_ = [("dwLowDateTime", wintypes.DWORD), ("dwHighDateTime", wintypes.DWORD)]
 
-            def as_int(ft: "_FileTime") -> int:
+            def as_int(ft: _FileTime) -> int:
                 return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
 
             idle, kernel, user = _FileTime(), _FileTime(), _FileTime()

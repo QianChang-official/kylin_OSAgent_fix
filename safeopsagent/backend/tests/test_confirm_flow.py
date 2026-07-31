@@ -11,7 +11,6 @@ from backend.security.guardrail import Guardrail
 from backend.security.risk_score import RiskScoreResult
 from backend.tools.registry import ToolResult, get_registry
 
-
 client = TestClient(app)
 
 

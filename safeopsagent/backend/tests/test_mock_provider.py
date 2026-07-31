@@ -6,7 +6,6 @@ from backend.llm.deepseek_client import DeepSeekClient
 from backend.llm.mock_provider import MockProvider
 from backend.tools.registry import ToolResult, get_registry
 
-
 client = TestClient(app)
 
 TOOLS = [

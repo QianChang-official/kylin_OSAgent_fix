@@ -12,7 +12,6 @@ from backend import app as app_module
 from backend.cleanup.service import CleanupError, CleanupService
 from backend.security.guardrail import Guardrail
 
-
 DEFAULT_CASES = Path(__file__).resolve().parents[2] / "tests" / "data" / "security_benchmark_cases.json"
 
 

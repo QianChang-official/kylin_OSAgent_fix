@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 
 from backend.app import CONSOLE_DIST_DIR, _console_response, app
 
-
 client = TestClient(app)
 
 

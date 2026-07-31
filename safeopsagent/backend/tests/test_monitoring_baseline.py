@@ -260,6 +260,7 @@ def test_service_sampler_not_running_by_default(tmp_path):
 @pytest.fixture()
 def client():
     from fastapi.testclient import TestClient
+
     from backend.app import app
     return TestClient(app)
 

@@ -21,8 +21,8 @@ import os
 from typing import Any
 
 from backend.executor import SafeExecutor
-from .registry import ToolSchema, ToolResult, command_audit, get_registry
 
+from .registry import ToolResult, ToolSchema, command_audit, get_registry
 
 _executor = SafeExecutor()
 
@@ -86,7 +86,7 @@ def _find_holders(path: str) -> tuple[list[dict[str, Any]], str, dict]:
         error = (result.error or result.stderr or "").lower()
         # lsof exits non-zero when nothing holds the file — that is a valid
         # answer (no holders), not a failure.
-        if "not found" in error or "no such file" in error and "lsof" in error:
+        if "not found" in error or ("no such file" in error and "lsof" in error):
             return [], "capability_missing", audit
         if not result.stdout.strip():
             return [], "success", audit
