@@ -11,7 +11,7 @@
 | 稳定标签 | `safeopsagent-v1.3.0-final-delivery` |
 | 最终包 | `safeopsagent-<tag-commit-short-hash>-final-delivery.tar.gz` |
 | 最终包 SHA256 | 见包旁同名 `.sha256` 文件 |
-| 本地最终 pytest | 434 项自动化用例（`pytest --collect-only`）；跳过项随平台与可选依赖变化 |
+| 本地最终 pytest | 449 项自动化用例（`pytest --collect-only`）；跳过项随平台与可选依赖变化 |
 | 官方系统 | Kylin Linux Advanced Server V11 (Swan25) |
 | 官方架构 | `loongarch64` |
 | 官方内核 | `6.6.0-32.7.v2505.ky11.loongarch64` |
@@ -28,7 +28,7 @@
 | 能力 | Windows / 开发环境 | 官方 Kylin V11 LoongArch64 | 说明 |
 | --- | --- | --- | --- |
 | `backend.app` 导入 | 已验证 | 已验证 | `python -c "import backend.app; print('import-ok')"` |
-| 全量 pytest | 已验证 | 已验证 v1.2 RC | 本地最终为 434 项自动化用例全部收集并通过；Kylin LoongArch64 复验通过 |
+| 全量 pytest | 已验证 | 已验证 v1.2 RC | 本地最终为 449 项自动化用例全部收集并通过；Kylin LoongArch64 复验通过 |
 | FastAPI 启动 | 已验证 | 已验证 | Uvicorn 可启动并响应本地请求 |
 | `/health` | 已验证 | 已验证 | 返回 200 |
 | `/agent/status` | 已验证 | 已验证 | 返回运行模式、模型提供方和规划来源 |
