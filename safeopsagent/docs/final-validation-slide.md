@@ -31,7 +31,7 @@ SafeOpsAgent 已在官方银河麒麟 V11 LoongArch64 环境完成安全智能�
 | 后端导入 | import-ok |
 | 本地最终 pytest | 434 项自动化用例，0 失败 |
 | Kylin LoongArch64 复验 | 通过 |
-| 安全基准 | 64 项，63 执行，1 跳过，误报 0，漏报 0 |
+| 安全基准 | 64 项（部分用例依赖 POSIX 环境，跳过数随平台变化），误报 0，漏报 0 |
 | `shell=True` | 无结果 |
 | `subprocess.run` | 仅 SafeExecutor |
 | API Key 泄漏 | API / Audit Trace / Uvicorn log 未发现 Key |

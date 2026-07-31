@@ -57,14 +57,19 @@ CLAIM_PATTERNS = [
     # 判成了过期，教训是：断言前先确认文档说的是哪个量。
     ("对抗基准定义数", re.compile(r"(\d+)\s*项安全对抗基准"), "benchmark_total"),
     ("对抗基准定义数", re.compile(r"安全基准\s*\|?\s*(\d+)\s*项"), "benchmark_total"),
-    ("对抗基准执行数", re.compile(r"(\d+)\s*执行"), "benchmark_evaluated"),
-    ("对抗基准跳过数", re.compile(r"(\d+)\s*跳过"), "benchmark_skipped"),
 ]
 
-# "N passed, M skipped" 是一次运行的结果，不是项目属性：跳过数随平台与可选
-# 依赖变化（同一提交在 Windows 跳 7 项、在 Linux 跳 6 项）。拿它当文档里的
-# 门面数字，等于承诺一个换台机器就不成立的值。文档一律改用
-# `pytest --collect-only` 的收集用例数，它与环境无关且可当场复核。
+# 只有环境无关的量才能进上面这张表。
+#
+# 反例有两个，都是同一个错误：
+#   - "N passed, M skipped"：跳过数随平台与可选依赖变化（同一提交 Windows
+#     跳 7 项、Linux 跳 6 项）。
+#   - 对抗基准的"执行数/跳过数"：Linux 上 64 执行 0 跳过，Windows 上 63 执行
+#     1 跳过。第一版门禁把它们写进了表，结果本机全绿、CI 全红。
+#
+# 判据很简单：换一台机器重跑，这个数会不会变？会变就不能当门禁基准，
+# 也不该当文档里的门面数字。基准的"定义数"(benchmark_total) 与用例的
+# "收集数"(test_collected) 才是项目属性。
 RUN_RESULT_PHRASING = re.compile(r"\d+\s*passed")
 
 # 少数文档记录的是某次具体验证活动的历史结果，数字理应停在当时。
