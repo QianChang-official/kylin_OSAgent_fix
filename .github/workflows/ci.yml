@@ -215,7 +215,8 @@ jobs:
           MONITOR_SAMPLING_ENABLED: '0'
         run: python scripts/verify_invariants.py --no-report
 
-      - name: Security adversarial benchmark        env:
+      - name: Security adversarial benchmark
+        env:
           PYTHONPATH: ${{ github.workspace }}/safeopsagent
           MODEL_PROVIDER: offline_safe
         run: |
