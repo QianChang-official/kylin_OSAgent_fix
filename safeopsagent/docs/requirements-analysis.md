@@ -204,7 +204,7 @@ SafeOpsAgent 的定位是**大模型与操作系统之间的安全控制面**：
 | NFR-5 | 安全开销 | 安全护栏引入的额外开销可忽略 | 实测预检平均 ≈ 0.15ms，占整链路 < 1% |
 | NFR-6 | 并发能力 | 单进程支持多并发请求不出错 | 1/4/8/16 并发成功率 100%，无 5xx |
 | NFR-7 | 资源占用 | 内存占用适配低配国产化环境 | 实测进程峰值 < 100MB |
-| NFR-8 | 可测试性 | 核心能力有自动化测试覆盖 | 228 项自动化测试通过 |
+| NFR-8 | 可测试性 | 核心能力有自动化测试覆盖 | 434 项自动化用例 |
 | NFR-9 | 安全可证明 | 安全能力有对抗基准量化 | 64 项安全基准，误报 0、漏报 0 |
 | NFR-10 | 模型自主可控 | 优先适配国产开源模型，可替换 | DeepSeek / Qwen / Kimi / 自定义 / 离线五种模式 |
 
@@ -241,7 +241,7 @@ SafeOpsAgent 的定位是**大模型与操作系统之间的安全控制面**：
 
 | 需求编号 | 实现模块 | 验证方式 |
 | --- | --- | --- |
-| FR-1.1 ~ FR-1.3 | `backend/tools/*.py`（16 个工具） | `test_memory_tool.py`、`test_cpu_tool.py`、`test_port_tool.py`、`test_service_tool.py` |
+| FR-1.1 ~ FR-1.3 | `backend/tools/*.py`（17 个工具） | `test_memory_tool.py`、`test_cpu_tool.py`、`test_port_tool.py`、`test_service_tool.py` |
 | FR-1.4 | `backend/osprobe/probe.py` | `test_observability_api.py` |
 | FR-1.5 ~ FR-1.6 | `backend/mcp_adapter.py`、`backend/mcp_server.py` | `test_mcp_adapter.py`、`test_mcp_sse_transport.py` |
 | FR-2.1 ~ FR-2.6 | `backend/agent/orchestrator.py`、`backend/llm/*` | `test_chat_agent_orchestration.py`、`test_domestic_model_gateway.py`、`test_session_lifecycle.py` |

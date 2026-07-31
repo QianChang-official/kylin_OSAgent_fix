@@ -29,7 +29,7 @@ SafeOpsAgent 已在官方银河麒麟 V11 LoongArch64 环境完成安全智能�
 | 检查项 | 结果 |
 | --- | --- |
 | 后端导入 | import-ok |
-| 本地最终 pytest | 232 passed, 6 skipped, 1 warning |
+| 本地最终 pytest | 434 项自动化用例，0 失败 |
 | Kylin LoongArch64 复验 | 通过 |
 | 安全基准 | 64 项，63 执行，1 跳过，误报 0，漏报 0 |
 | `shell=True` | 无结果 |
@@ -58,7 +58,7 @@ SafeOpsAgent 已在官方银河麒麟 V11 LoongArch64 环境完成安全智能�
 
 说明：Vue 控制台由 FastAPI 同源托管，Kylin 运行时不依赖 Node、Streamlit 或 pyarrow。
 
-边界：Kylin 真机结果来自基线 `57d90f8`；v1.3.0 新增能力已在本地完成 52 项自动化测试验证，建议在目标机补跑一次完整回归。
+边界：Kylin 真机结果来自基线 `57d90f8`；v1.3.0 后期新增能力已在本地完成自动化验证，建议在目标机补跑一次完整回归。
 
 ## 国产模型联调
 

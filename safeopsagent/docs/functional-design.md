@@ -82,7 +82,7 @@
 | 模型层 | DomesticModelGateway | `backend/llm/domestic_model_gateway.py` | 国产模型配置解析与安全降级 |
 | 模型层 | 离线安全规划器 | `backend/llm/mock_provider.py` | 无网络时的确定性规划 |
 | 工具层 | ToolRegistry | `backend/tools/registry.py` | 工具注册、发现、Schema 校验、调用 |
-| 工具层 | 16 个工具 | `backend/tools/*.py` | OS 感知与运维能力实现 |
+| 工具层 | 17 个工具 | `backend/tools/*.py` | OS 感知与运维能力实现 |
 | 分析层 | RecommendationEngine | `backend/analysis/recommendation_engine.py` | 单工具结果解析与诊断结论 |
 | 分析层 | RootCauseEngine | `backend/analysis/root_cause_engine.py` | 跨工具证据关联与根因链 |
 | 审计层 | AuditLogger | `backend/audit/logger.py` | Trace v2 审计写入与回放 |
@@ -250,7 +250,7 @@ subprocess.run(
 
 ## 5. 工具体系设计
 
-### 5.1 工具清单（16 个）
+### 5.1 工具清单（17 个）
 
 **基础感知工具（9 个，自动只读）**
 
@@ -565,7 +565,7 @@ GET /audit/trace/{request_id}
 | 工作台 | `/console/` | Agent 状态、运行模式、模型提供方、工具数、安全链路图 |
 | 智能诊断 | `/console/diagnosis` | 自然语言输入、工具规划卡片、诊断结论、**根因链展示** |
 | 安全中心 | `/console/security` | 危险场景演示、拦截结果、风险分与命中规则可视化 |
-| 工具能力 | `/console/tools` | 16 个工具分类展示、参数 Schema、只读/需确认标注 |
+| 工具能力 | `/console/tools` | 17 个工具分类展示、参数 Schema、只读/需确认标注 |
 | 审计追踪 | `/console/audit` | 审计列表、request_id 检索、6 步时间线回放 |
 
 ### 10.3 根因链展示设计

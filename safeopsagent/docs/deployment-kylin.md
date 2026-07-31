@@ -231,7 +231,7 @@ Package: safeopsagent-57d90f8-v1.2-rc-kylin-retest.tar.gz
 通过项：
 
 ```text
-pytest: 232 passed, 6 skipped
+pytest: 434 项用例收集并通过（跳过项随环境变化）
 backend import: import-ok
 /health: pass
 /agent/status: pass
@@ -281,7 +281,7 @@ API / Audit Trace / Uvicorn log: no API Key leak
 
 - 官方 v1.2 RC 复验包不包含 `.git`，版本通过包名、SHA256 和独立复验目录确认。
 - 麒麟真机复验基线为 `57d90f8`，验证了核心安全闭环、多工具联合诊断、可恢复清理、危险拒绝、审计与 Vue 控制台。
-- v1.3.0 新增根因分析引擎、配置漂移/僵尸进程/磁盘 I/O 三个场景工具与 MCP SSE 传输，已在本地完成 52 项自动化测试验证；建议在麒麟目标机重跑 `python -m pytest -q` 与 `python scripts/performance_test.py` 补充真机基线。
+- v1.3.0 新增根因分析引擎、配置漂移/僵尸进程/磁盘 I/O 三个场景工具与 MCP SSE 传输，已在本地完成自动化验证；建议在麒麟目标机重跑 `python -m pytest -q` 与 `python scripts/performance_test.py` 补充真机基线。
 - DeepSeek Key 仅用于受控联调，不写入配置文件或提交包。
 
 ## 10. 常见问题
