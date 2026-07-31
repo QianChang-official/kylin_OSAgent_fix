@@ -166,6 +166,9 @@ def test_tools_confirm_concurrent_replay_executes_once(monkeypatch):
         def log(self, entry):
             return True
 
+        def preflight(self):
+            """Writable: this test isolates replay behaviour, not the audit gate."""
+
     def fake_call(name, args):
         called["count"] += 1
         time.sleep(0.05)

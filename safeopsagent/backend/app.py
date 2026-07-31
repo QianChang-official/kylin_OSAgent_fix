@@ -930,6 +930,18 @@ def call_tool(req: ToolCallRequest):
         error = "Tool call blocked by security guardrail"
         return finish(False)
 
+    # INV-R2/INV-R4: every entry point that can execute a tool refuses when
+    # the action could not be recorded. /chat enforces this in the
+    # orchestrator; this is the same gate for /tools/call and, through
+    # mcp_adapter.call_mcp_tool, for both MCP transports.
+    try:
+        get_logger().preflight()
+    except AuditWriteError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Audit log is unavailable; the tool call was refused without executing anything",
+        ) from exc
+
     try:
         tool_result = registry.call(req.tool_name, req.arguments)
         executed = tool_result.status == "success"
@@ -1110,6 +1122,16 @@ def confirm_tool(req: ToolConfirmRequest):
         security_reason = "blocked_by_guardrail"
         error = "Confirmed tool call became forbidden during revalidation"
         return finish(False)
+
+    # A confirmed call is the one path that reaches a mutating tool, so an
+    # unrecordable action must be refused here too.
+    try:
+        get_logger().preflight()
+    except AuditWriteError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Audit log is unavailable; the confirmed tool call was refused without executing anything",
+        ) from exc
 
     try:
         tool_result = registry.call(tool_name, arguments)
