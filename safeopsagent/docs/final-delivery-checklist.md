@@ -36,7 +36,7 @@ python -m pytest -q
 
 ```text
 import-ok: pass
-pytest: 232 passed, 6 skipped, 1 warning
+pytest: 434 项用例收集并通过（跳过项随环境变化）
 security benchmark: 64 cases, 63 evaluated, 1 skipped, false_positive=0, false_negative=0
 ```
 
@@ -236,9 +236,9 @@ safeopsagent/
 
 | 事实项 | 正确口径 |
 | --- | --- |
-| 工具数量 | 16 个受控工具：14 个自动只读/安全规划，2 个需人工确认 |
-| 自动化测试 | 232 passed, 6 skipped（跳过项须逐条说明原因，不计为通过） |
-| 安全基准 | 64 项，63 执行，1 跳过，误报 0，漏报 0 |
+| 工具数量 | 17 个受控工具：15 个自动只读/安全规划，2 个需人工确认 |
+| 自动化测试 | 434 项自动化用例（跳过项须逐条说明原因，不计为通过） |
+| 安全基准 | 64 项（部分用例依赖 POSIX 环境，跳过数随平台变化），误报 0，漏报 0 |
 | MCP 传输 | stdio 与 SSE / Streamable HTTP 双传输，SDK 为可选依赖 |
 | 版本号 | v1.3.0（README、app.py、mcp_server.py、package.json 四处一致） |
 | 麒麟复验 | 基线 `57d90f8` 已验证核心闭环；v1.3.0 新增能力建议目标机补跑回归 |

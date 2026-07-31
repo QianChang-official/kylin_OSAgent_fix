@@ -164,7 +164,7 @@ export MODEL_NAME=deepseek-chat
 | 工作台 | `/console/` | 查看 Agent 状态、运行模式、安全链路 |
 | 智能诊断 | `/console/diagnosis` | 自然语言提问，查看诊断与根因分析 |
 | 安全中心 | `/console/security` | 危险请求拦截演示与风险可视化 |
-| 工具能力 | `/console/tools` | 浏览 16 个工具及其参数定义 |
+| 工具能力 | `/console/tools` | 浏览 17 个工具及其参数定义 |
 | 审计追踪 | `/console/audit` | 查询审计记录，按 request_id 回放 |
 
 ### 4.2 智能诊断（核心功能）
@@ -268,7 +268,7 @@ SSE 端点:      http://127.0.0.1:8000/mcp/sse
 消息端点:      http://127.0.0.1:8000/mcp/messages/
 ```
 
-MCP 客户端可发现全部 16 个工具并调用。**所有 MCP 调用同样经过完整安全链路**，不存在绕过通道。
+MCP 客户端可发现全部 17 个工具并调用。**所有 MCP 调用同样经过完整安全链路**，不存在绕过通道。
 
 ---
 

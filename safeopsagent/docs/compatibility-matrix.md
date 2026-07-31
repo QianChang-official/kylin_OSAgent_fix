@@ -11,7 +11,7 @@
 | 稳定标签 | `safeopsagent-v1.3.0-final-delivery` |
 | 最终包 | `safeopsagent-<tag-commit-short-hash>-final-delivery.tar.gz` |
 | 最终包 SHA256 | 见包旁同名 `.sha256` 文件 |
-| 本地最终 pytest | `232 passed, 6 skipped, 1 warning` |
+| 本地最终 pytest | 434 项自动化用例（`pytest --collect-only`）；跳过项随平台与可选依赖变化 |
 | 官方系统 | Kylin Linux Advanced Server V11 (Swan25) |
 | 官方架构 | `loongarch64` |
 | 官方内核 | `6.6.0-32.7.v2505.ky11.loongarch64` |
@@ -19,21 +19,21 @@
 | 官方 Kylin LoongArch64 复验 pytest | 通过 |
 | 后端导入 | `import-ok` |
 | 静态安全检查 | `shell=True` 无结果，`subprocess.run` 仅 SafeExecutor |
-| 安全基准 | 64 项，63 执行，1 跳过，误报 0，漏报 0 |
+| 安全基准 | 64 项（部分用例依赖 POSIX 环境，跳过数随平台变化），误报 0，漏报 0 |
 
-官方 Kylin LoongArch64 复验基线为 `57d90f8`，验证了 CPU 诊断、多工具联合诊断、可恢复清理、危险拒绝、审计与 Vue 控制台的可运行性。v1.3.0 新增的根因分析引擎、3 个场景工具与 MCP SSE 已在本地完成 52 项自动化测试验证，建议在麒麟目标机重跑一次完整回归补充真机基线。
+官方 Kylin LoongArch64 复验基线为 `57d90f8`，验证了 CPU 诊断、多工具联合诊断、可恢复清理、危险拒绝、审计与 Vue 控制台的可运行性。v1.3.0 后期新增的影响面预测、变更—故障因果关联、自学习基线监控与前门欺骗，以及审计哈希链，均已在本地完成自动化验证；建议在麒麟目标机重跑一次完整回归补充真机基线。
 
 ## 2. 核心能力矩阵
 
 | 能力 | Windows / 开发环境 | 官方 Kylin V11 LoongArch64 | 说明 |
 | --- | --- | --- | --- |
 | `backend.app` 导入 | 已验证 | 已验证 | `python -c "import backend.app; print('import-ok')"` |
-| 全量 pytest | 已验证 | 已验证 v1.2 RC | 本地最终为 `232 passed, 6 skipped, 1 warning`；Kylin LoongArch64 复验通过 |
+| 全量 pytest | 已验证 | 已验证 v1.2 RC | 本地最终为 434 项自动化用例全部收集并通过；Kylin LoongArch64 复验通过 |
 | FastAPI 启动 | 已验证 | 已验证 | Uvicorn 可启动并响应本地请求 |
 | `/health` | 已验证 | 已验证 | 返回 200 |
 | `/agent/status` | 已验证 | 已验证 | 返回运行模式、模型提供方和规划来源 |
 | `/system/probe` | 已验证 | 已验证 | 返回 OS、kernel、arch、Python 与命令探测 |
-| `/tools/list` | 已验证 | 已验证 | 返回 16 个受控工具：14 个自动只读/安全规划工具，2 个确认执行工具 |
+| `/tools/list` | 已验证 | 已验证 | 返回 17 个受控工具：15 个自动只读/安全规划工具，2 个确认执行工具 |
 | `/tools/call` | 已验证 | 已验证 | `get_memory_status` 等只读工具可调用 |
 | `/tools/confirm` | 已验证 | 已验证后端接口 | 中风险 dry-run / confirmation 机制可用 |
 | `/chat` 正常只读请求 | 已验证 | 已验证 | `check memory status` 可规划 `get_memory_status` |

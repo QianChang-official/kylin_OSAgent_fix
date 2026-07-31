@@ -2,7 +2,44 @@
 
 SafeOpsAgent 是面向银河麒麟操作系统的安全智能运维 Agent。项目的核心目标不是把大模型变成开放 Shell，而是在自然语言和操作系统之间增加一层安全控制面：**模型负责理解、规划和总结，系统负责安全预检、工具白名单、风险评分、最小权限执行和审计追踪。模型永远不能直接执行系统命令。**
 
-当前版本 v1.3.0 提供完整的安全智能运维能力：17 个受控运维工具、跨工具根因分析引擎、变更—故障因果关联、操作影响面预测、自学习基线监控大盘、五层安全护栏、MCP 双传输协议、Vue 可视化控制台与全链路审计追踪。系统已在银河麒麟 V11 LoongArch64 环境完成真机复验，基线为 312 项自动化测试通过；本轮 AI 安全集成本机全量回归为 358 项通过、7 项环境跳过。64 项安全对抗基准误报 0、漏报 0，10 条安全不变式机器验证全部成立。
+当前版本 v1.3.0 提供完整的安全智能运维能力：17 个受控运维工具、跨工具根因分析引擎、变更—故障因果关联、操作影响面预测、自学习基线监控大盘、五层安全护栏、MCP 双传输协议、Vue 可视化控制台与全链路审计追踪。系统已在银河麒麟 V11 LoongArch64 环境完成真机复验。当前基线：434 项自动化用例、13 条安全不变式（5 静态 + 8 运行时）机器验证全部成立、64 项安全对抗基准误报 0 漏报 0（部分用例依赖 POSIX 环境，跳过数随平台变化）。
+
+> 上面每个数字都由 `python scripts/project_facts.py` 实测得出，并由
+> `backend/tests/test_docs_consistency.py` 在 CI 中比对——文档里的数字与代码
+> 不一致会直接让构建失败。这个项目栽过一次：新增四项能力后九份交付文档的
+> 工具数、测试数、不变式数同时落后，所以现在不靠人记得同步。
+
+## 保证与证据
+
+下表每条保证都指向一条回归测试。**指不到测试的话不写进这张表。**
+
+| 保证 | 回归测试 |
+| --- | --- |
+| 模型规划的工具必须过白名单与参数校验才可能执行 | `test_tools_call.py::test_tools_call_rejects_unknown_tool` |
+| 高危输入在调用模型**之前**被拦截，而非事后否决 | `scripts/verify_invariants.py` INV-R3 |
+| `security_decision=reject` 的请求 `executed` 恒为 false | `scripts/verify_invariants.py` INV-R1 |
+| 所有系统命令经 SafeExecutor 单点执行，禁止 `shell=True` | `scripts/verify_invariants.py` INV-S1..INV-S5（AST 静态检查） |
+| HTTP `/chat`、`/tools/call` 与 MCP 两种传输收敛到同一条安全链路 | `scripts/verify_invariants.py` INV-R4 |
+| 工具输出中的危险内容被二次拦截 | `test_tools_call.py::test_tools_call_output_guardrail_blocks` |
+| 审计记录构成哈希链，改写与删除可检测并定位 | `test_audit_chain.py::test_modified_record_is_detected`、`::test_deleted_record_is_detected` |
+| 丢整张日表、截断尾部、抹掉链字段均可检测 | `test_audit_chain.py::test_chain_continues_across_daily_tables`、`::test_truncated_tail_is_detected`、`::test_stripping_chain_fields_is_detected` |
+| 配置 `AUDIT_HMAC_KEY` 后，整体重建链的伪造会被抓出 | `test_audit_chain.py::test_forged_rebuild_without_the_key_is_detected` |
+| **未配置密钥时，同样的伪造检测不出（边界）** | `test_audit_chain.py::test_the_same_forgery_is_invisible_without_a_key` |
+| 审计不可写时拒绝执行，而非留下无记录的动作 | `test_audit_gate_entry_points.py`（`/chat`、`/tools/call`、MCP 各一条） |
+| 蜜罐令牌在密码学上无法被验证为真实会话 | `scripts/verify_invariants.py` INV-R6 |
+| 审计库、溯源证据、控制台产物永不进入自动清理可达范围 | `scripts/verify_invariants.py` INV-R7 |
+| 中风险工具需 dry-run 与一次性令牌确认，令牌不可复用 | `test_confirm_flow.py` |
+
+### 这些保证**不能**证明什么
+
+同样重要，且同样有测试固定：
+
+- **未配置 `AUDIT_HMAC_KEY` 时，审计只有完整性、没有真实性。** 能写数据库的攻击者可以改一条记录后重算整条链，验证器会报 `integrity OK`。这是无密钥哈希链的固有性质，不是缺陷。详见 [`SECURITY.md`](../SECURITY.md)。
+- **fail-closed 只关得住"执行前"那扇窗。** 工具跑完之后才发生的审计写失败无法撤销已发生的动作；此时请求以错误结束，而不是伪装成功。
+- **对抗基准是 64 条合成用例**，覆盖已知攻击模式，不等价于对未知攻击的保证。
+- **前门欺骗是欺骗手段，不是安全边界。** 边界在后端的 PBKDF2、HMAC 会话签名、CSRF 与限流。
+- **不防御已取得宿主 root 的攻击者。**
+
 
 ## 核心能力
 
@@ -281,11 +318,16 @@ safeopsagent/
 
 ```text
 release: v1.3.0
-pytest: 312 passed, 6 skipped, 1 warning
+pytest --collect-only: 434 项自动化用例
 security benchmark: 64 cases, 63 evaluated, 1 skipped, FP=0, FN=0, pass_rate=100%
+security invariants: 13 条（5 静态 + 8 运行时）全部成立
+audit chain: integrity OK
 shell=True: no result
 subprocess.run: only backend/executor/safe_executor.py
 ```
+
+> 跳过的用例数随平台与可选依赖变化（同一提交在 Windows 与 Linux 上不同），
+> 所以这里记的是环境无关的收集用例数，任何人可用 `pytest --collect-only` 当场复核。
 
 性能实测（离线安全模式，详见 `docs/performance-test-report.md`）：
 
