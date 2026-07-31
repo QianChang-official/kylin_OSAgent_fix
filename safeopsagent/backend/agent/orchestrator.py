@@ -93,6 +93,11 @@ class AgentOrchestrator:
             self._log(session_id, request_id, user_input, result, start_ms)
             return result
 
+        # INV-R2 is fail-closed: an action that cannot be recorded is not
+        # taken. This is checked before the tools run, because a write failure
+        # afterwards cannot un-run them.
+        self.audit.preflight()
+
         plan_result = self._execute_tool_plan(input_check, tools, planned_tools)
         result.update(plan_result)
         self._apply_diagnosis(result)

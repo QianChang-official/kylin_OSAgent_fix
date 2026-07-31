@@ -17,7 +17,7 @@ from pathlib import Path
 from backend import config
 from backend.agent.orchestrator import CHAT_READONLY_TOOLS, AgentOrchestrator
 from backend.tools.registry import get_registry, ToolResult
-from backend.audit.logger import get_logger
+from backend.audit.logger import AuditWriteError, get_logger
 from backend.monitoring import get_monitoring_service
 from backend.osprobe.probe import run_probe
 from backend.security.codex_results import CodexResultError, CodexResultStore
@@ -930,6 +930,18 @@ def call_tool(req: ToolCallRequest):
         error = "Tool call blocked by security guardrail"
         return finish(False)
 
+    # INV-R2/INV-R4: every entry point that can execute a tool refuses when
+    # the action could not be recorded. /chat enforces this in the
+    # orchestrator; this is the same gate for /tools/call and, through
+    # mcp_adapter.call_mcp_tool, for both MCP transports.
+    try:
+        get_logger().preflight()
+    except AuditWriteError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Audit log is unavailable; the tool call was refused without executing anything",
+        ) from exc
+
     try:
         tool_result = registry.call(req.tool_name, req.arguments)
         executed = tool_result.status == "success"
@@ -1111,6 +1123,16 @@ def confirm_tool(req: ToolConfirmRequest):
         error = "Confirmed tool call became forbidden during revalidation"
         return finish(False)
 
+    # A confirmed call is the one path that reaches a mutating tool, so an
+    # unrecordable action must be refused here too.
+    try:
+        get_logger().preflight()
+    except AuditWriteError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Audit log is unavailable; the confirmed tool call was refused without executing anything",
+        ) from exc
+
     try:
         tool_result = registry.call(tool_name, arguments)
         executed = tool_result.status == "success"
@@ -1165,7 +1187,15 @@ def chat(req: ChatRequest):
         req.session_id = str(uuid.uuid4())
     if not req.message or len(req.message) > 2000:
         raise HTTPException(status_code=400, detail="Invalid message")
-    result = get_orch().run(req.session_id, req.message)
+    try:
+        result = get_orch().run(req.session_id, req.message)
+    except AuditWriteError as exc:
+        # Refusing is the correct answer: the audit log is the only record
+        # that the guardrail ran, so an unrecordable request is not served.
+        raise HTTPException(
+            status_code=503,
+            detail="Audit log is unavailable; the request was refused without executing anything",
+        ) from exc
     result["session_id"] = req.session_id
     return result
 

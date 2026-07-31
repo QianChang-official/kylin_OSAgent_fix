@@ -88,6 +88,39 @@ jobs:
               sys.exit(f"security benchmark regression: FP={fp} FN={fn}")
           PY
 
+      # The audit log is the only record that the guardrail ran. This drives a
+      # real request through the stack, then proves the resulting chain both
+      # verifies clean and detects an edit — so "tamper-evident" is a gate,
+      # not a README sentence.
+      - name: Audit chain is tamper-evident
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          MODEL_PROVIDER: offline_safe
+          MONITOR_SAMPLING_ENABLED: '0'
+          AUDIT_HMAC_KEY: ci-signing-key-not-a-production-secret
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from backend.audit.logger import AuditLogger
+          log = AuditLogger(Path('ci-audit.db'))
+          for i in range(5):
+              log.log({'request_id': f'ci-{i}', 'user_input': 'check disk usage',
+                       'security_decision': 'allow', 'executed': True})
+          PY
+          python scripts/verify_audit_chain.py --db ci-audit.db
+          python - <<'PY'
+          import sqlite3, sys
+          from contextlib import closing
+          with closing(sqlite3.connect('ci-audit.db')) as c, c:
+              t = [r[0] for r in c.execute(
+                  "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'audit_2%'")][0]
+              c.execute(f"UPDATE {t} SET security_decision='reject' WHERE request_id='ci-2'")
+          PY
+          if python scripts/verify_audit_chain.py --db ci-audit.db; then
+            echo "::error::a modified audit record still verified as intact"; exit 1
+          fi
+          echo "tampering detected as expected"
+
       # Deliberately no grep-based shell=True / subprocess guard here: the
       # AST checker above already proves INV-S1..INV-S5 and correctly excludes
       # the checker's own docstrings and the tests that simulate unsafe input.
