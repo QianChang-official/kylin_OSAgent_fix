@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """从 Wikimedia Commons 抓取 CC-BY 协议的长城/故宫图片并压缩为控制台素材。
 
 合规说明：仅采用 LicenseShortName 严格为 "CC BY"（含版本号，不含 SA/NC/ND）的图片，
@@ -98,7 +97,7 @@ def fetch_image(url: str, dst: Path) -> bool:
     """下载并压缩为 JPEG；宽高不足或下载失败返回 False。"""
     try:
         data = http_get(url)
-    except Exception as exc:  # noqa: BLE001 - 单张失败不影响整体
+    except Exception as exc:
         print(f"    下载失败: {exc}")
         return False
     tmp = dst.with_suffix(".download")
@@ -131,7 +130,7 @@ def main() -> int:
         hits = [h for h in search_ccby(query) if h["title"] not in EXCLUDE_TITLES]
         print(f"  命中 CC-BY 图片 {len(hits)} 张")
         used = 0
-        for i, hit in enumerate(hits):
+        for _i, hit in enumerate(hits):
             if used >= count or not hit["thumb"]:
                 continue
             time.sleep(1)  # 下载间隔，避免触发限流
