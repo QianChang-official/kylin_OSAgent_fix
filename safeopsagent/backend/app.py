@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from backend import config
+from backend import __version__, config
 from backend.agent.orchestrator import CHAT_READONLY_TOOLS, AgentOrchestrator
 from backend.tools.registry import get_registry, ToolResult
 from backend.audit.logger import AuditWriteError, get_logger
@@ -72,7 +72,7 @@ zombie_process_tool.register()
 disk_io_tool.register()
 impact_tool.register()
 
-APP_VERSION = "1.3.0"
+APP_VERSION = __version__
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 TOOL_EXECUTION_ERROR = "Tool execution failed"
 

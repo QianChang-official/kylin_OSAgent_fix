@@ -77,11 +77,13 @@ def get_version_tag() -> str:
         pass
 
     # No git metadata (e.g. packaging from an extracted archive): fall back to
-    # the version declared in backend/app.py so the filename stays meaningful.
-    app_file = PROJECT_ROOT / "backend" / "app.py"
+    # the version declared in backend/__init__.py so the filename stays
+    # meaningful. Parsed textually rather than imported, because packaging
+    # must work without the backend's runtime dependencies installed.
+    init_file = PROJECT_ROOT / "backend" / "__init__.py"
     try:
-        for line in app_file.read_text(encoding="utf-8").splitlines():
-            if line.startswith("APP_VERSION"):
+        for line in init_file.read_text(encoding="utf-8").splitlines():
+            if line.startswith("__version__"):
                 return "v" + line.split("=", 1)[1].strip().strip('"').strip("'")
     except OSError:
         pass
