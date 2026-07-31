@@ -39,15 +39,34 @@ const statusError = ref('')
 const logoutPending = ref(false)
 const logoutError = ref('')
 
+// 「中国红 × 金漆」主题：主色取标准中国红 #D12C25，描金点缀取传统金色 #EACD76，
+// 基底为玄色暖黑。语义色同步暖调，避免与主红冲突。
 const themeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: '#2bc4d9',
-    primaryColorHover: '#54d1df',
-    primaryColorPressed: '#1f9caf',
+    primaryColor: '#d12c25',
+    primaryColorHover: '#e0453d',
+    primaryColorPressed: '#a91f1a',
+    primaryColorSuppl: '#d12c25',
+    infoColor: '#c9a063',
+    infoColorHover: '#ddb57a',
+    infoColorPressed: '#a98850',
+    successColor: '#5fa66b',
+    successColorHover: '#74b77f',
+    successColorPressed: '#4e8c59',
+    warningColor: '#eacd76',
+    warningColorHover: '#f2da92',
+    warningColorPressed: '#c9ad5c',
+    errorColor: '#e85d64',
+    errorColorHover: '#f0787e',
+    errorColorPressed: '#c94a50',
     borderRadius: '6px',
-    bodyColor: '#0b0f14',
-    cardColor: '#111820',
-    textColorBase: '#edf5f7',
+    bodyColor: '#120d0a',
+    cardColor: '#231810',
+    modalColor: '#231810',
+    popoverColor: '#2c1f14',
+    inputColor: '#1a120ccc',
+    borderColor: '#3e2e1e',
+    textColorBase: '#f4ede0',
   },
 }
 
@@ -211,8 +230,8 @@ watch(
   min-height: 100vh;
   display: grid;
   place-items: center;
-  color: #82909d;
-  background: #0b0f14;
+  color: #97887a;
+  background: #120d0a;
 }
 
 .auth-bootstrap span { display: block; margin-top: 12px; font-size: 12px; }
@@ -223,7 +242,7 @@ watch(
   align-items: center;
   gap: 6px;
   padding: 7px 8px;
-  color: #9cabb5;
+  color: #c9bca8;
   font-size: 11px;
 }
 .session-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -264,52 +264,52 @@ onUnmounted(() => {
 
 .host-card {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 18px; border: 1px solid #283540; border-radius: 8px; background: #111820;
+  gap: 16px; padding: 18px; border: 1px solid #3e2e1e; border-radius: 8px; background: #231810;
 }
 .host-main { display: flex; align-items: center; gap: 12px; min-width: 240px; }
 .host-icon {
   display: grid; place-items: center; width: 40px; height: 40px;
-  border-radius: 8px; background: #16222c; color: #2bc4d9;
+  border-radius: 8px; background: #2b1f0e; color: #eacd76;
 }
 .host-copy strong { display: block; font-size: 15px; }
-.host-copy span { display: block; margin-top: 3px; color: #74828e; font-size: 11px; }
+.host-copy span { display: block; margin-top: 3px; color: #97887a; font-size: 11px; }
 
 .host-stats { display: flex; flex-wrap: wrap; gap: 22px; }
-.host-stat small { display: block; color: #687682; font-size: 10px; }
+.host-stat small { display: block; color: #97887a; font-size: 10px; }
 .host-stat strong { display: block; margin-top: 3px; font-size: 13px; font-variant-numeric: tabular-nums; }
 
 .host-actions { display: flex; align-items: center; gap: 8px; }
 
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 .metric-tile {
-  padding: 16px; border: 1px solid #283540; border-radius: 8px; background: #111820;
+  padding: 16px; border: 1px solid #3e2e1e; border-radius: 8px; background: #231810;
   transition: border-color .16s;
 }
 .metric-tile.flagged { border-color: #d03b3b66; }
 
 .tile-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tile-label { color: #a9b6c0; font-size: 12px; }
+.tile-label { color: #c9bca8; font-size: 12px; }
 
 /* Proportional figures for a large standalone value, not tabular-nums. */
 .tile-value { margin: 10px 0 2px; font-size: 27px; font-weight: 600; line-height: 1; }
-.tile-unit { margin-left: 3px; font-size: 14px; font-weight: 400; color: #74828e; }
+.tile-unit { margin-left: 3px; font-size: 14px; font-weight: 400; color: #97887a; }
 
-.tile-baseline { margin-bottom: 10px; min-height: 28px; color: #687682; font-size: 10px; line-height: 1.5; }
+.tile-baseline { margin-bottom: 10px; min-height: 28px; color: #97887a; font-size: 10px; line-height: 1.5; }
 
-.section-block { padding: 18px; border: 1px solid #283540; border-radius: 8px; background: #111820; }
+.section-block { padding: 18px; border: 1px solid #3e2e1e; border-radius: 8px; background: #231810; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .section-heading strong { display: block; font-size: 14px; }
-.section-heading span { display: block; margin-top: 4px; color: #74828e; font-size: 11px; }
+.section-heading span { display: block; margin-top: 4px; color: #97887a; font-size: 11px; }
 
-.empty-hint { margin: 0; color: #74828e; font-size: 12px; line-height: 1.7; }
+.empty-hint { margin: 0; color: #97887a; font-size: 12px; line-height: 1.7; }
 
 .anomaly-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .anomaly-table th {
-  padding: 8px 10px; border-bottom: 1px solid #283540;
-  color: #687682; font-weight: 400; font-size: 11px; text-align: left; white-space: nowrap;
+  padding: 8px 10px; border-bottom: 1px solid #3e2e1e;
+  color: #97887a; font-weight: 400; font-size: 11px; text-align: left; white-space: nowrap;
 }
-.anomaly-table td { padding: 10px; border-bottom: 1px solid #1b242d; vertical-align: top; }
+.anomaly-table td { padding: 10px; border-bottom: 1px solid #2e2115; vertical-align: top; }
 .anomaly-table tr:last-child td { border-bottom: 0; }
 .anomaly-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.anomaly-table .explain { color: #a9b6c0; line-height: 1.6; min-width: 260px; }
+.anomaly-table .explain { color: #c9bca8; line-height: 1.6; min-width: 260px; }
 </style>
