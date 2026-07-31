@@ -2,8 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { NAlert, NButton, NEmpty, NIcon, NSpin, NTag } from 'naive-ui'
-import { Activity, Database, GitFork, HeartRateMonitor, Refresh, ShieldCheck, Tool } from '@vicons/tabler'
-import PageHeader from '@/components/PageHeader.vue'
+import { Activity, Bulb, Database, GitFork, HeartRateMonitor, Refresh, ShieldCheck, Tool } from '@vicons/tabler'
 import { api } from '@/api/client'
 import type { AgentStatus, AuditLog, HealthResponse, SystemProbe } from '@/types/api'
 import { decisionLabel, decisionType, formatTime, modeLabel } from '@/utils/presentation'
@@ -58,17 +57,22 @@ onMounted(load)
 </script>
 
 <template>
-  <page-header
-    eyebrow="Operations workspace"
-    title="安全智能运维工作台"
-    description="统一查看 Agent、模型规划、安全护栏、受控工具和审计链路的真实运行状态。"
-  >
-    <template #actions>
-      <n-button secondary :loading="loading" @click="load">
-        <template #icon><n-icon :component="Refresh" /></template>刷新状态
-      </n-button>
-    </template>
-  </page-header>
+  <!-- 长城主题横幅：金色日出影像 + 玄色罩面，呼应「中国红 × 金漆」主题 -->
+  <section class="page-hero" style="background-image: url('/console/images/greatwall-2.jpg'); background-position: center 42%;">
+    <div class="page-hero-inner">
+      <p class="eyebrow">Operations workspace</p>
+      <h1 class="page-hero-title">安全智能运维工作台</h1>
+      <p class="page-hero-desc">统一查看 Agent、模型规划、安全护栏、受控工具和审计链路的真实运行状态。长城为屏、金漆为饰，守护银河麒麟主机的每一次运维决策。</p>
+      <div class="page-hero-actions">
+        <n-button type="primary" @click="router.push({ path: '/diagnosis' })">
+          <template #icon><n-icon :component="Bulb" /></template>发起智能诊断
+        </n-button>
+        <n-button secondary :loading="loading" @click="load">
+          <template #icon><n-icon :component="Refresh" /></template>刷新状态
+        </n-button>
+      </div>
+    </div>
+  </section>
 
   <n-alert v-if="error" type="error" title="工作台暂时无法连接后端" :bordered="false">{{ error }}</n-alert>
   <n-spin :show="loading">
@@ -137,7 +141,7 @@ onMounted(load)
           </button>
         </div>
         <n-empty v-else description="暂无审计记录" />
-        <n-button class="wide-action" secondary type="primary" @click="router.push('/audit')">进入审计追踪</n-button>
+        <n-button class="wide-action" secondary @click="router.push('/audit')">进入审计追踪</n-button>
       </div>
     </section>
 
@@ -162,16 +166,18 @@ onMounted(load)
 
 <style scoped>
 .event-row, .quick-action { width: 100%; border: 0; color: inherit; text-align: left; cursor: pointer; }
-.event-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #222d37; background: transparent; }
+.event-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #2e2115; background: transparent; }
 .event-row:last-child { border-bottom: 0; }
+.event-row:hover strong { color: #eacd76; }
 .event-row span { min-width: 0; }
-.event-row strong, .event-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-row strong, .event-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color .16s ease; }
 .event-row strong { max-width: 380px; font-size: 12px; }
-.event-row small { margin-top: 4px; color: #687682; font-size: 10px; }
+.event-row small { margin-top: 4px; color: #97887a; font-size: 10px; }
 .wide-action { width: 100%; margin-top: 14px; }
-.quick-action { min-height: 98px; padding: 17px; border: 1px solid #283540; border-radius: 8px; background: #111820; transition: border-color .16s, background .16s; }
-.quick-action:hover { border-color: #2bc4d977; background: #132029; }
-.quick-action.danger:hover { border-color: #f06b7377; background: #21171b; }
+.quick-action { position: relative; min-height: 98px; padding: 17px; border: 1px solid #3e2e1e; border-radius: 8px; background: #231810; transition: border-color .16s, background .16s, transform .16s; }
+.quick-action:hover { border-color: #b08d3e88; background: #2c1f14; transform: translateY(-2px); }
+.quick-action.danger:hover { border-color: #d12c2577; background: #2b1410; }
 .quick-action strong, .quick-action span { display: block; }
-.quick-action span { margin-top: 7px; color: #74828e; font-size: 12px; }
+.quick-action strong { font-size: 13px; }
+.quick-action span { margin-top: 7px; color: #97887a; font-size: 12px; }
 </style>

@@ -55,8 +55,8 @@ function hasArguments(argumentsValue: Record<string, unknown> | undefined): bool
 </template>
 
 <style scoped>
-.tool-plan-details { margin-top: 8px; color: #71818d; font-size: 11px; }
-.tool-plan-details summary { color: #6f8792; cursor: pointer; }
-.tool-plan-details code { display: block; margin-top: 7px; color: #8da0aa; overflow-wrap: anywhere; }
-.tool-plan-details p { min-height: 0; margin: 7px 0 0; color: #81929c; }
+.tool-plan-details { margin-top: 8px; color: #97887a; font-size: 11px; }
+.tool-plan-details summary { color: #97887a; cursor: pointer; }
+.tool-plan-details code { display: block; margin-top: 7px; color: #b0a28e; overflow-wrap: anywhere; }
+.tool-plan-details p { min-height: 0; margin: 7px 0 0; color: #a89a86; }
 </style>

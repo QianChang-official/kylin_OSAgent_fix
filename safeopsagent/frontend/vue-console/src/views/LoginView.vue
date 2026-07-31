@@ -233,11 +233,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 登录页：故宫金光长廊影像为底，玄色渐变罩面，金漆描边面板浮于其上 */
 .login-page {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background: #0b0f14;
+  background:
+    linear-gradient(180deg, #140d09c4 0%, #1e0f0aa8 45%, #120d0ad9 100%),
+    url("/console/images/forbidden-city-3.jpg") center 38% / cover no-repeat fixed,
+    #120d0a;
 }
 
 .login-header {
@@ -246,8 +250,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 11px;
   padding: 14px clamp(18px, 4vw, 44px);
-  border-bottom: 1px solid #202a35;
-  background: #0e141b;
+  border-bottom: 1px solid #b08d3e33;
+  background: #120d0a66;
+  backdrop-filter: blur(10px);
 }
 
 .login-brand-mark,
@@ -255,10 +260,11 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  color: #5bd9e7;
-  border: 1px solid #2bc4d966;
+  color: #eacd76;
+  border: 1px solid #b08d3e;
   border-radius: 7px;
-  background: #10252b;
+  background: linear-gradient(145deg, #d12c25, #a91f1a);
+  box-shadow: 0 0 0 3px #d12c2522, 0 4px 14px #00000055;
 }
 
 .login-brand-mark {
@@ -272,8 +278,14 @@ onBeforeUnmount(() => {
 .login-heading-icon { width: 38px; height: 38px; }
 .login-header strong,
 .login-header span { display: block; }
-.login-header strong { font-size: 16px; }
-.login-header span { margin-top: 3px; color: #82909d; font-size: 11px; }
+.login-header strong {
+  font-size: 16px;
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  letter-spacing: .03em;
+  background: linear-gradient(92deg, #f4ede0 30%, #eacd76 85%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.login-header span { margin-top: 3px; color: #c9bca8; font-size: 11px; }
 
 .login-main {
   width: 100%;
@@ -284,24 +296,29 @@ onBeforeUnmount(() => {
 
 .login-panel {
   width: min(420px, 100%);
-  padding: 24px;
-  border: 1px solid #26313c;
-  border-radius: 8px;
-  background: #111820;
+  padding: 26px 24px;
+  border: 1px solid #b08d3e55;
+  border-radius: 10px;
+  background: #1d130ccc;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 24px 60px -24px #000000d9, 0 0 0 1px #00000040;
 }
 
 .login-heading { display: flex; align-items: center; gap: 12px; }
-.login-heading p { margin: 0 0 3px; color: #42c6d7; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-.login-heading h1 { margin: 0; font-size: 21px; line-height: 1.25; }
-.login-description { margin: 14px 0 18px; color: #86949f; font-size: 13px; line-height: 1.65; }
+.login-heading p { margin: 0 0 3px; color: #eacd76; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.login-heading h1 {
+  margin: 0; font-size: 21px; line-height: 1.25; letter-spacing: .04em;
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+}
+.login-description { margin: 14px 0 18px; color: #c9bca8; font-size: 13px; line-height: 1.65; }
 .login-panel .n-alert { margin-bottom: 16px; }
 .login-form { display: grid; gap: 9px; }
-.login-form label { margin-top: 4px; color: #aab7bf; font-size: 12px; font-weight: 600; }
+.login-form label { margin-top: 4px; color: #d8c9b2; font-size: 12px; font-weight: 600; }
 .login-key-row { display: flex; gap: 8px; }
 .login-key-row .n-input { flex: 1; }
 .login-submit { width: 100%; margin-top: 10px; }
-.login-footer { padding: 18px; color: #62717d; font-size: 11px; text-align: center; }
-.footer-open { color: #42c6d7; }
+.login-footer { padding: 18px; color: #97887a; font-size: 11px; text-align: center; }
+.footer-open { color: #eacd76; }
 
 @media (max-width: 520px) {
   .login-header { min-height: 62px; padding: 11px 14px; }

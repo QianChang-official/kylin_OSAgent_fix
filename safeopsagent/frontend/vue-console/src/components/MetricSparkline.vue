@@ -10,8 +10,8 @@
  * The only direct label is the endpoint, which the tile header already shows,
  * so the plot itself stays free of numbers.
  *
- * Series hue #3987e5 was validated against this console's dark surface
- * (#111820): passes lightness band, chroma floor and 3:1 contrast.
+ * Series hue #eacd76 (金漆金) is tuned for this console's warm dark surface
+ * (#231810): passes lightness band, chroma floor and 3:1 contrast.
  */
 import { computed, ref } from 'vue'
 
@@ -202,12 +202,12 @@ const tooltipStyle = computed(() => {
 </template>
 
 <style scoped>
-/* Chart roles. Series hue validated against surface #111820 (dark). */
+/* Chart roles. Series hue validated against surface #231810 (dark). */
 .sparkline-wrap {
-  --series-1: #3987e5;
+  --series-1: #eacd76;
   --status-critical: #d03b3b;
-  --surface-1: #111820;
-  --gridline: #33434f;
+  --surface-1: #231810;
+  --gridline: #4a3a26;
   position: relative;
 }
 
@@ -244,7 +244,7 @@ const tooltipStyle = computed(() => {
 }
 .end-marker.is-anomalous { fill: var(--status-critical); }
 
-.crosshair { stroke: #47535e; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.crosshair { stroke: #6b5836; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .hover-marker {
   fill: var(--series-1);
   stroke: var(--surface-1);
@@ -257,14 +257,14 @@ const tooltipStyle = computed(() => {
   top: -6px;
   transform: translateX(-50%);
   padding: 4px 8px;
-  border: 1px solid #2b3945;
+  border: 1px solid #3e2e1e;
   border-radius: 5px;
-  background: #0d141b;
+  background: #1a120c;
   pointer-events: none;
   white-space: nowrap;
 }
-.spark-tooltip strong { font-size: 12px; color: #edf5f7; }
-.spark-tooltip small { display: block; margin-top: 2px; font-size: 10px; color: #898781; }
+.spark-tooltip strong { font-size: 12px; color: #f4ede0; }
+.spark-tooltip small { display: block; margin-top: 2px; font-size: 10px; color: #97887a; }
 
 .spark-empty {
   position: absolute;
@@ -273,7 +273,7 @@ const tooltipStyle = computed(() => {
   align-items: center;
   justify-content: center;
   margin: 0;
-  color: #687682;
+  color: #97887a;
   font-size: 11px;
 }
 </style>

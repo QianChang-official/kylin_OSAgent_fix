@@ -248,18 +248,18 @@ onMounted(load)
 </template>
 
 <style scoped>
-.tool-card.selected { border-color: #2bc4d977; background: #122027; }
-.tool-card code { color: #65cbd6; font-size: 11px; }
-.tool-output { margin: 0 0 10px; color: #8fa0aa; font-size: 12px; }
+.tool-card.selected { border-color: #b08d3e88; background: #2c1f14; }
+.tool-card code { color: #eacd76; font-size: 11px; }
+.tool-output { margin: 0 0 10px; color: #c9bca8; font-size: 12px; }
 .tool-select { width: 100%; margin-top: 14px; }
 .argument-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 16px; }
 .argument-field > span, .argument-field > small { display: block; }
-.argument-field > span { margin-bottom: 6px; color: #aab7bf; font-size: 12px; }
-.argument-field > span small { margin-left: 5px; color: #f2bd5b; }
-.argument-field > small { margin-top: 5px; color: #687783; font-size: 10px; }
+.argument-field > span { margin-bottom: 6px; color: #d8c9b2; font-size: 12px; }
+.argument-field > span small { margin-left: 5px; color: #f2be45; }
+.argument-field > small { margin-top: 5px; color: #97887a; font-size: 10px; }
 .cleanup-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding: 14px; border: 1px solid rgba(242,189,91,.24); border-radius: 9px; background: rgba(242,189,91,.06); }
-.cleanup-actions strong { color: #f0f6f8; }
-.cleanup-actions p { margin: 5px 0 0; color: #8c9ba5; font-size: 12px; }
+.cleanup-actions strong { color: #f4ede0; }
+.cleanup-actions p { margin: 5px 0 0; color: #c9bca8; font-size: 12px; }
 @media (max-width: 640px) { .argument-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .cleanup-actions { display: block; } .cleanup-actions .n-button { width: 100%; margin-top: 12px; } }
 </style>
