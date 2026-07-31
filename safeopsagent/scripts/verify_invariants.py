@@ -46,6 +46,7 @@ RUNTIME_INVARIANTS = {
     "INV-R5": "工具输出中的危险内容必须被二次拦截",
     "INV-R6": "欺骗（蜜罐）会话在密码学上无法被验证为真实会话，且只能取得合成数据",
     "INV-R7": "受保护的珍贵资产（审计库、溯源证据、控制台）永远不在自动清理可达范围内",
+    "INV-R8": "审计记录构成哈希链，任何改写、删除或重排都能被离线检测出位置",
 }
 
 # Inputs that must always be refused, whatever the entry point.
@@ -310,6 +311,56 @@ class RuntimeChecker:
             "detail": "审计库、溯源证据与控制台构建产物在白名单校验之前即被拒绝",
         })
 
+    def check_audit_chain_detects_tampering(self) -> None:
+        """INV-R8: audit records are chained, so edits and deletions surface."""
+        import sqlite3
+        import tempfile
+        from contextlib import closing
+        from backend.audit.logger import AuditLogger
+
+        with tempfile.TemporaryDirectory() as workdir:
+            db_path = Path(workdir) / "audit.db"
+            logger = AuditLogger(db_path)
+            for index in range(3):
+                logger.log({
+                    "request_id": f"inv-r8-{index}",
+                    "user_input": "check disk usage",
+                    "security_decision": "allow",
+                    "executed": True,
+                })
+
+            if not logger.verify_chain()["integrity_ok"]:
+                self._fail("INV-R8", "未经改动的审计链验证失败")
+
+            with closing(sqlite3.connect(str(db_path))) as conn, conn:
+                table = [row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'audit_2%'"
+                )][0]
+                conn.execute(
+                    f"UPDATE {table} SET security_decision = 'reject' WHERE request_id = 'inv-r8-1'"
+                )
+            if logger.verify_chain()["integrity_ok"]:
+                self._fail("INV-R8", "审计记录被改写后仍验证通过")
+
+            logger2 = AuditLogger(Path(workdir) / "audit2.db")
+            for index in range(3):
+                logger2.log({"request_id": f"del-{index}", "user_input": "x", "executed": False})
+            with closing(sqlite3.connect(str(logger2.db_path))) as conn, conn:
+                table = [row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'audit_2%'"
+                )][0]
+                conn.execute(f"DELETE FROM {table} WHERE request_id = 'del-1'")
+            if logger2.verify_chain()["integrity_ok"]:
+                self._fail("INV-R8", "审计记录被删除后仍验证通过")
+
+        self.observations.append({
+            "invariant": "INV-R8",
+            "detail": (
+                "哈希链可检测改写与删除；伪造需 AUDIT_HMAC_KEY 才不可行，"
+                "未配置密钥时链本身可被有写权限者整体重建"
+            ),
+        })
+
     def run(self) -> dict[str, Any]:
         self.check_reject_never_executes()
         self.check_benign_not_blocked()
@@ -318,6 +369,7 @@ class RuntimeChecker:
         self.check_confirm_cannot_bypass()
         self.check_sandbox_isolation()
         self.check_protected_assets_unreachable()
+        self.check_audit_chain_detects_tampering()
         return {
             "passed": not self.failures,
             "failure_count": len(self.failures),

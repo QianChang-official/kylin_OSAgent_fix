@@ -17,7 +17,7 @@ from pathlib import Path
 from backend import config
 from backend.agent.orchestrator import CHAT_READONLY_TOOLS, AgentOrchestrator
 from backend.tools.registry import get_registry, ToolResult
-from backend.audit.logger import get_logger
+from backend.audit.logger import AuditWriteError, get_logger
 from backend.monitoring import get_monitoring_service
 from backend.osprobe.probe import run_probe
 from backend.security.codex_results import CodexResultError, CodexResultStore
@@ -1165,7 +1165,15 @@ def chat(req: ChatRequest):
         req.session_id = str(uuid.uuid4())
     if not req.message or len(req.message) > 2000:
         raise HTTPException(status_code=400, detail="Invalid message")
-    result = get_orch().run(req.session_id, req.message)
+    try:
+        result = get_orch().run(req.session_id, req.message)
+    except AuditWriteError as exc:
+        # Refusing is the correct answer: the audit log is the only record
+        # that the guardrail ran, so an unrecordable request is not served.
+        raise HTTPException(
+            status_code=503,
+            detail="Audit log is unavailable; the request was refused without executing anything",
+        ) from exc
     result["session_id"] = req.session_id
     return result
 

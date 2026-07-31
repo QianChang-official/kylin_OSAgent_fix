@@ -164,6 +164,11 @@ CODEX_SECURITY_RESULTS_DIR = os.environ.get("CODEX_SECURITY_RESULTS_DIR", "").st
 # Audit
 AUDIT_DB_PATH = PROJECT_DIR / "data" / "audit.db"
 AUDIT_RETENTION_DAYS = 7
+# Signs the audit hash chain. Without it the chain still detects tampering and
+# deletion, but an attacker with database write access can recompute a
+# consistent chain; only the key makes that forgery infeasible. Keep it off the
+# audited host where the threat model calls for it.
+AUDIT_HMAC_KEY = os.environ.get("AUDIT_HMAC_KEY", "").strip()
 
 # Security
 DELETE_COMMANDS = {"rm", "rm -rf", "truncate", "shred"}
