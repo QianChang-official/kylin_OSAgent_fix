@@ -83,7 +83,7 @@ def payload_digest(values: dict) -> str:
 
 def link(prev_hash: str, digest: str) -> str:
     """Chain one record to its predecessor."""
-    return hashlib.sha256(f"{prev_hash}:{digest}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{prev_hash}:{digest}".encode()).hexdigest()
 
 
 def sign(entry_hash: str, key: bytes | None) -> str:

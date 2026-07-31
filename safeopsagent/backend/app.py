@@ -1,27 +1,28 @@
 """FastAPI backend — REST API for SafeOpsAgent."""
-from contextlib import asynccontextmanager
-from ipaddress import ip_address
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
-from typing import Optional, Any
 import hmac
 import json
 import threading
 import time
 import uuid
+from contextlib import asynccontextmanager
+from ipaddress import ip_address
 from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
 from backend import __version__, config
 from backend.agent.orchestrator import CHAT_READONLY_TOOLS, AgentOrchestrator
-from backend.tools.registry import get_registry, ToolResult
 from backend.audit.logger import AuditWriteError, get_logger
+from backend.llm.domestic_model_gateway import resolve_model_config
 from backend.monitoring import get_monitoring_service
 from backend.osprobe.probe import run_probe
-from backend.security.codex_results import CodexResultError, CodexResultStore
+from backend.security.ai_resources import security_resources_payload
 from backend.security.client_identity import ClientIdentity, resolve_client
+from backend.security.codex_results import CodexResultError, CodexResultStore
 from backend.security.console_auth import (
     AttemptLimiter,
     AuthConfigurationError,
@@ -31,31 +32,30 @@ from backend.security.console_auth import (
     SandboxIdentity,
 )
 from backend.security.deception import get_deception_engine
-from backend.security.sandbox_plane import SANDBOX_USERNAME, synthetic_response
 from backend.security.guardrail import Guardrail
-from backend.security.ai_resources import security_resources_payload
 from backend.security.rule_labels import flatten_rule_hits, label_rules
+from backend.security.sandbox_plane import SANDBOX_USERNAME, synthetic_response
 from backend.security_intel import load_aisecurity_feed, load_integration_catalog
 from backend.security_intel.rss import load_aisecurity_snapshot
-from backend.llm.domestic_model_gateway import resolve_model_config
 
 # Register all tools
 from backend.tools import (
-    disk_usage,
-    process_list,
-    network_status,
-    large_file_scan,
-    journal_query,
-    port_tool,
-    memory_tool,
-    service_tool,
-    cpu_tool,
     cleanup_tools,
     config_drift_tool,
-    zombie_process_tool,
+    cpu_tool,
     disk_io_tool,
+    disk_usage,
     impact_tool,
+    journal_query,
+    large_file_scan,
+    memory_tool,
+    network_status,
+    port_tool,
+    process_list,
+    service_tool,
+    zombie_process_tool,
 )
+from backend.tools.registry import ToolResult, get_registry
 
 disk_usage.register()
 process_list.register()
@@ -197,7 +197,7 @@ except Exception:
     pass
 
 # Shared state
-_orchestrator: Optional[AgentOrchestrator] = None
+_orchestrator: AgentOrchestrator | None = None
 _confirmations: dict[str, dict] = {}
 _confirmation_lock = threading.RLock()
 
@@ -857,7 +857,6 @@ def call_tool(req: ToolCallRequest):
             "result": result,
             "error": error,
             "rule_hits": rule_hits,
-            "rule_labels": readable_rule_labels,
         }
 
     if not registry.get_schema(req.tool_name):
@@ -1076,7 +1075,6 @@ def confirm_tool(req: ToolConfirmRequest):
             "result": result,
             "error": error,
             "rule_hits": rule_hits,
-            "rule_labels": readable_rule_labels,
         }
 
     if token_error:

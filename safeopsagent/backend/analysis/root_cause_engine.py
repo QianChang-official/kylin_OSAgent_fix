@@ -12,9 +12,9 @@ database log -> permission/safety assessment -> safe cleanup plan.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
-
+from typing import Any
 
 CRITICAL_DB_DATA_EXTENSIONS = {
     ".db", ".sqlite", ".sqlite3", ".ibd", ".frm", ".myd", ".myi",
@@ -425,7 +425,7 @@ def _detect_cpu_pressure_with_process(
 
     root_cause = f"CPU 持续高位（{usage:.1f}%），主因进程 {name}（PID {pid}）占用 {top_cpu:.1f}%"
     if journal_hint:
-        root_cause += f"；日志中发现该服务相关异常线索"
+        root_cause += "；日志中发现该服务相关异常线索"
 
     return RootCauseChain(
         chain_id="cpu_pressure_with_process",

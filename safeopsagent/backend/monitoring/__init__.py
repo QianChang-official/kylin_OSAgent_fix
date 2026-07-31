@@ -6,13 +6,13 @@ from .service import MonitoringService, get_monitoring_service
 from .store import MetricStore
 
 __all__ = [
+    "METRIC_LABELS",
+    "METRIC_UNITS",
+    "TRACKED_METRICS",
     "Baseline",
     "MetricCollector",
     "MetricStore",
     "MonitoringService",
-    "METRIC_LABELS",
-    "METRIC_UNITS",
-    "TRACKED_METRICS",
     "evaluate",
     "get_monitoring_service",
     "host_overview",

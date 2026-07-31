@@ -1,9 +1,10 @@
 """Security guardrail — multi-layer input/output validation and risk scoring."""
 import re
 import unicodedata
-from urllib.parse import unquote
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import ClassVar
+from urllib.parse import unquote
+
 from backend import config
 from backend.security.risk_score import RiskScorer, RiskScoreResult
 
@@ -12,7 +13,7 @@ from backend.security.risk_score import RiskScorer, RiskScoreResult
 class SecurityCheck:
     passed: bool
     risk_level: int  # 1-5
-    rule_hits: List[str] = field(default_factory=list)
+    rule_hits: list[str] = field(default_factory=list)
     details: str = ""
     channel: str = "user_input"  # user_input | tool_output
 
@@ -23,12 +24,12 @@ class Guardrail:
     COMMAND_TOKEN_CHARS = r"A-Za-z0-9_./-"
     PATH_TOKEN_CHARS = r"A-Za-z0-9_./-"
 
-    DANGEROUS_COMMAND_TOKENS = {
+    DANGEROUS_COMMAND_TOKENS: ClassVar[set[str]] = {
         "rm", "dd", "mkfs", "kill", "chmod", "chown", "sudo",
         "shutdown", "reboot", "fdisk", "parted", "passwd", "userdel",
         "truncate", "shred",
     }
-    DELETE_COMMAND_TOKENS = {"rm", "truncate", "shred"}
+    DELETE_COMMAND_TOKENS: ClassVar[set[str]] = {"rm", "truncate", "shred"}
 
     FORBIDDEN_PATH_PATTERNS = (
         ("/", re.compile(r"(?<![A-Za-z0-9_./-])/(?![A-Za-z0-9_./-])")),
@@ -49,20 +50,20 @@ class Guardrail:
         ("/home", re.compile(r"(?<![A-Za-z0-9_./-])/home(?=$|/|[^A-Za-z0-9_./-])")),
     )
 
-    DESTRUCTIVE_TERMS = {
+    DESTRUCTIVE_TERMS: ClassVar[set[str]] = {
         "删除", "清空", "移除", "格式化", "覆盖", "修改", "写入", "重启",
         "关闭", "杀死", "停止", "销毁", "擦除",
         "delete", "remove", "clear", "format", "overwrite", "write",
         "modify", "kill", "shutdown", "reboot", "wipe", "destroy",
     }
-    READONLY_TERMS = {
+    READONLY_TERMS: ClassVar[set[str]] = {
         "查看", "查询", "检查", "读取", "列出", "统计", "分析", "诊断",
         "搜索", "显示", "看看",
         "show", "check", "read", "list", "query", "inspect",
         "analyze", "diagnose", "search",
     }
-    READONLY_TOOL_SAFE_PATHS = {"/var/log", "/home"}
-    HARD_BLOCK_READ_PATHS = {"/etc/shadow"}
+    READONLY_TOOL_SAFE_PATHS: ClassVar[set[str]] = {"/var/log", "/home"}
+    HARD_BLOCK_READ_PATHS: ClassVar[set[str]] = {"/etc/shadow"}
     PROTECTED_CREDENTIAL_PATTERNS = (
         ("/etc/gshadow", re.compile(r"(?<![A-Za-z0-9_./-])/etc/gshadow(?=$|[^A-Za-z0-9_./-])")),
         (".env", re.compile(
@@ -192,7 +193,7 @@ class Guardrail:
         )
 
     # Layer 3: Tool selection validation
-    def validate_tool_selection(self, tool_name: str, available_tools: List[str]) -> SecurityCheck:
+    def validate_tool_selection(self, tool_name: str, available_tools: list[str]) -> SecurityCheck:
         if tool_name not in available_tools:
             return SecurityCheck(
                 passed=False,
@@ -232,13 +233,13 @@ class Guardrail:
 
     def score_100(
         self,
-        input_check: Optional[SecurityCheck] = None,
-        tool_check: Optional[SecurityCheck] = None,
-        arg_check: Optional[SecurityCheck] = None,
-        output_check: Optional[SecurityCheck] = None,
+        input_check: SecurityCheck | None = None,
+        tool_check: SecurityCheck | None = None,
+        arg_check: SecurityCheck | None = None,
+        output_check: SecurityCheck | None = None,
         tool_name: str = "",
-        arguments: Optional[dict] = None,
-        extra_factors: Optional[List[str]] = None,
+        arguments: dict | None = None,
+        extra_factors: list[str] | None = None,
     ) -> RiskScoreResult:
         return self.risk_scorer.score(
             input_check=input_check,
@@ -251,7 +252,7 @@ class Guardrail:
         )
 
     # Layer 7+10: Alternative suggestions
-    def suggest_alternative(self, risk_level: int, user_input: str) -> Optional[str]:
+    def suggest_alternative(self, risk_level: int, user_input: str) -> str | None:
         normalized = self._normalize_text(user_input)
         if risk_level >= 5 and self._has_delete_command(normalized):
             return (
@@ -296,7 +297,7 @@ class Guardrail:
                 return True
         return False
 
-    def _match_dangerous_commands(self, text: str) -> List[str]:
+    def _match_dangerous_commands(self, text: str) -> list[str]:
         hits = []
         for rule, pattern in self.DANGEROUS_COMMAND_PATTERNS + self.DOWNLOAD_EXECUTE_PATTERNS:
             if pattern.search(text):
@@ -306,7 +307,7 @@ class Guardrail:
                 hits.append(f"dangerous_cmd:{cmd}")
         return self._dedupe(hits)
 
-    def _match_critical_injection(self, text: str) -> List[str]:
+    def _match_critical_injection(self, text: str) -> list[str]:
         return [rule for rule, pattern in self.CRITICAL_INJECTION_PATTERNS if pattern.search(text)]
 
     def _has_delete_command(self, text: str) -> bool:
@@ -314,10 +315,10 @@ class Guardrail:
             return True
         return any(self._has_command_token(text, cmd) for cmd in self.DELETE_COMMAND_TOKENS)
 
-    def _match_paths(self, text: str, patterns) -> List[str]:
+    def _match_paths(self, text: str, patterns) -> list[str]:
         return [path for path, pattern in patterns if pattern.search(text)]
 
-    def _assess_paths(self, text: str, mode: str) -> tuple[int, List[str]]:
+    def _assess_paths(self, text: str, mode: str) -> tuple[int, list[str]]:
         hits = []
         risk = 1
         forbidden_paths = self._match_paths(text, self.FORBIDDEN_PATH_PATTERNS)
@@ -359,7 +360,7 @@ class Guardrail:
 
         return risk, self._dedupe(hits)
 
-    def _assess_arg_paths(self, tool_name: str, key: str, text: str, original_value: str) -> tuple[int, List[str]]:
+    def _assess_arg_paths(self, tool_name: str, key: str, text: str, original_value: str) -> tuple[int, list[str]]:
         hits = []
         risk = 1
         forbidden_paths = self._match_paths(text, self.FORBIDDEN_PATH_PATTERNS)
@@ -414,5 +415,5 @@ class Guardrail:
         text = str(value)
         return text if len(text) <= 120 else text[:117] + "..."
 
-    def _dedupe(self, values: List[str]) -> List[str]:
+    def _dedupe(self, values: list[str]) -> list[str]:
         return list(dict.fromkeys(values))

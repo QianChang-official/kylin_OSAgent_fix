@@ -13,7 +13,6 @@ import httpx
 from backend import config
 from backend.llm.mock_provider import MockProvider
 
-
 SYSTEM_PROMPT = """You are SafeOpsAgent's tool planner.
 
 You must return JSON only. Do not output markdown, prose, or chain-of-thought.

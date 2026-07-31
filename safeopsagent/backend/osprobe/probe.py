@@ -4,7 +4,6 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -43,7 +42,7 @@ def run_probe() -> SystemCapabilities:
     return cap
 
 
-def _read_os_release() -> Optional[str]:
+def _read_os_release() -> str | None:
     release_file = Path("/etc/os-release")
     try:
         if release_file.exists():

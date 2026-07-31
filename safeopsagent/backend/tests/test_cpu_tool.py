@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from backend.executor.command_spec import CommandResult
 from backend.tools import cpu_tool

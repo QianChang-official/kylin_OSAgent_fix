@@ -1,5 +1,4 @@
 """Front-door deception: decoy login, concealed entry gate, sandbox isolation."""
-import tempfile
 from pathlib import Path
 
 import pytest

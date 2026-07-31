@@ -7,7 +7,6 @@ from backend.app import app
 from backend.audit.logger import AuditLogger
 from backend.tools.registry import ToolResult
 
-
 client = TestClient(app)
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 DEFAULT_RULE_LABEL = "安全规则命中"
 
 

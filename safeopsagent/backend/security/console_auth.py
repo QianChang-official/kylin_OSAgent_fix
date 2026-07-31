@@ -13,9 +13,8 @@ import json
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
-
 
 PASSWORD_SCHEME = "pbkdf2_sha256"
 MIN_PASSWORD_ITERATIONS = 200_000
@@ -60,7 +59,7 @@ def generate_password_hash(
     password: str,
     *,
     iterations: int = 600_000,
-    salt: Optional[bytes] = None,
+    salt: bytes | None = None,
 ) -> str:
     """Return a portable PBKDF2-SHA256 password verifier string."""
     if not password:
@@ -227,7 +226,7 @@ class ConsoleAuth:
         ).digest()
         return f"{encoded_payload}.{_b64encode(signature)}", identity
 
-    def authenticate(self, token: str) -> Optional[ConsoleIdentity]:
+    def authenticate(self, token: str) -> ConsoleIdentity | None:
         if not self.enabled:
             return ConsoleIdentity("local", 0, "")
         if not self.configured or not token:
@@ -307,7 +306,7 @@ class ConsoleAuth:
         ).digest()
         return f"{encoded_payload}.{_b64encode(signature)}", identity
 
-    def authenticate_sandbox(self, token: str) -> Optional[SandboxIdentity]:
+    def authenticate_sandbox(self, token: str) -> SandboxIdentity | None:
         if not self.sandbox_capable or not token:
             return None
         try:

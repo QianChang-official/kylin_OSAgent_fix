@@ -1,6 +1,6 @@
 """0-100 risk scoring for guardrail decisions."""
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -29,7 +29,7 @@ class RiskScorer:
     score is used in API responses and decision explanations.
     """
 
-    LEVEL_BASE_SCORE = {
+    LEVEL_BASE_SCORE: ClassVar[dict[int, int]] = {
         1: 10,
         2: 30,
         3: 50,
@@ -37,7 +37,7 @@ class RiskScorer:
         5: 95,
     }
 
-    TOOL_BASE_SCORE = {
+    TOOL_BASE_SCORE: ClassVar[dict[str, int]] = {
         "get_memory_status": 10,
         "disk_usage": 12,
         "process_list": 16,
@@ -57,7 +57,7 @@ class RiskScorer:
         "safe_cleanup_restore": 75,
     }
 
-    RULE_WEIGHTS = {
+    RULE_WEIGHTS: ClassVar[dict[str, int]] = {
         "delete_command": 100,
         "dangerous_cmd": 100,
         "shell_injection_char": 100,

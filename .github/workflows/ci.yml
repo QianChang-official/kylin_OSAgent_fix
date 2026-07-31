@@ -14,14 +14,58 @@ defaults:
     working-directory: safeopsagent
 
 jobs:
-  test:
-    name: Tests (Python ${{ matrix.python-version }})
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ruff
+        run: python -m pip install --upgrade pip && python -m pip install ruff
+
+      # 规则集与豁免理由都在 safeopsagent/pyproject.toml 里，不散落成 noqa。
+      - name: Ruff
+        run: python -m ruff check .
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Dependabot 只发告警，不阻断构建。这一步把生产依赖闭包的已知漏洞
+      # 变成会让 PR 变红的门禁。审计的是实际部署用的 requirements.txt，
+      # 而不是开发依赖——开发机被拖累不该阻断发布，运行时有洞才该。
+      - name: Audit production dependency closure
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit
+          python -m pip install -r backend/requirements.txt
+          python -m pip_audit --strict --progress-spinner off \
+            --ignore-vuln GHSA-4xh5-x5gv-qwph
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }} · ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # 3.11 matches the Kylin V11 target; 3.12 guards against drift.
-        python-version: ['3.11', '3.12']
+        # 3.11 matches the Kylin V11 target; 3.12/3.13 guard against drift.
+        python-version: ['3.11', '3.12', '3.13']
+        os: [ubuntu-latest]
+        # 日常开发在 Windows 上进行，而路径处理与 SQLite 文件句柄的行为
+        # 在两个平台上并不相同（审计链的 closing() 就是被 Windows 抓出来的）。
+        include:
+          - python-version: '3.12'
+            os: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +91,98 @@ jobs:
           MODEL_PROVIDER: offline_safe
           MONITOR_SAMPLING_ENABLED: '0'
         run: python -m pytest -q
+
+  coverage:
+    name: Coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements-dev.txt
+          python -m pip install pytest-cov
+
+      # 门槛按实测水位设定（本次实测：整体 88%），留 3 个点的浮动余量。
+      # 目的不是"覆盖率越高越好"，而是防止新增代码在无测试的情况下把水位拉低。
+      # 提高门槛请连同实测数字一起改，不要凭感觉。
+      - name: Overall coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          MODEL_PROVIDER: offline_safe
+          MONITOR_SAMPLING_ENABLED: '0'
+        run: |
+          python -m pytest --cov=backend --cov-report=term-missing \
+            --cov-report=xml --cov-fail-under=85 -q
+
+      # 护栏、执行器与审计是这个项目全部安全主张的落点，掉覆盖率比别处更严重。
+      # 实测同为 88%，门槛设 86，余量比整体更小。
+      - name: Security-critical module coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          MODEL_PROVIDER: offline_safe
+          MONITOR_SAMPLING_ENABLED: '0'
+        run: |
+          python -m pytest \
+            --cov=backend/security --cov=backend/executor --cov=backend/audit \
+            --cov-report=term-missing --cov-fail-under=86 -q
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: safeopsagent/coverage.xml
+          if-no-files-found: warn
+
+  performance-budget:
+    name: Performance budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements-dev.txt
+
+      # 两件事在这一步同时成立才算通过：
+      #   1. 每个端点成功率 >= 99%。脚本此前未配置控制台认证，除 /health 外
+      #      全部返回 503，报告照样生成，测到的是拒绝响应的延迟。现在成功率
+      #      不达标直接失败，这种报告不可能再被产出。
+      #   2. p95 与吞吐不超出 benchmarks/performance-budget.json 的门槛。
+      #      门槛由实测值乘余量得出，余量取得宽，是为了不做出一道会随机
+      #      变红的门禁；它要抓的是数量级回归，不是几十毫秒的波动。
+      # --no-report：CI 不重写提交进仓库的报告，避免每次跑都产生噪音 diff。
+      - name: Measure and check budget
+        env:
+          PYTHONPATH: ${{ github.workspace }}/safeopsagent
+          PERF_SAMPLES: '30'
+          PERF_CONC_TOTAL: '60'
+        run: |
+          python scripts/performance_test.py \
+            --no-report \
+            --json perf-measurements.json \
+            --budget benchmarks/performance-budget.json
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-measurements
+          path: safeopsagent/perf-measurements.json
+          if-no-files-found: warn
 
   security:
     name: Security gates

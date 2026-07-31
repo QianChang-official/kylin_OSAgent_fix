@@ -70,6 +70,7 @@ BENIGN_INPUTS = [
 class RuntimeChecker:
     def __init__(self) -> None:
         from fastapi.testclient import TestClient
+
         from backend.app import app
 
         self.client = TestClient(app)
@@ -316,6 +317,7 @@ class RuntimeChecker:
         import sqlite3
         import tempfile
         from contextlib import closing
+
         from backend.audit.logger import AuditLogger
 
         with tempfile.TemporaryDirectory() as workdir:
@@ -333,9 +335,9 @@ class RuntimeChecker:
                 self._fail("INV-R8", "未经改动的审计链验证失败")
 
             with closing(sqlite3.connect(str(db_path))) as conn, conn:
-                table = [row[0] for row in conn.execute(
+                table = next(row[0] for row in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'audit_2%'"
-                )][0]
+                ))
                 conn.execute(
                     f"UPDATE {table} SET security_decision = 'reject' WHERE request_id = 'inv-r8-1'"
                 )
@@ -346,9 +348,9 @@ class RuntimeChecker:
             for index in range(3):
                 logger2.log({"request_id": f"del-{index}", "user_input": "x", "executed": False})
             with closing(sqlite3.connect(str(logger2.db_path))) as conn, conn:
-                table = [row[0] for row in conn.execute(
+                table = next(row[0] for row in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'audit_2%'"
-                )][0]
+                ))
                 conn.execute(f"DELETE FROM {table} WHERE request_id = 'del-1'")
             if logger2.verify_chain()["integrity_ok"]:
                 self._fail("INV-R8", "审计记录被删除后仍验证通过")

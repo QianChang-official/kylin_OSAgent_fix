@@ -27,10 +27,11 @@ import socket
 import statistics
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from backend.security.client_identity import ClientIdentity, credential_digest
 
@@ -94,7 +95,7 @@ class SourceDossier:
         return self.login_failures + self.gate_failures
 
     @property
-    def median_interval(self) -> Optional[float]:
+    def median_interval(self) -> float | None:
         if len(self.intervals) < 2:
             return None
         return round(statistics.median(self.intervals), 3)
@@ -258,7 +259,7 @@ class DeceptionEngine:
         sandbox_id: str,
         method: str,
         path: str,
-        detail: Optional[dict[str, Any]] = None,
+        detail: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             dossier = self._touch(client)
@@ -302,7 +303,7 @@ class DeceptionEngine:
 
     # -------------------------------------------------------------- reporting
 
-    def dossier(self, source: str) -> Optional[dict[str, Any]]:
+    def dossier(self, source: str) -> dict[str, Any] | None:
         with self._lock:
             found = self._sources.get(str(source))
             return found.to_dict() if found else None
@@ -509,7 +510,7 @@ class DeceptionEngine:
         try:
             if not path.is_file():
                 return []
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            with open(path, encoding="utf-8", errors="replace") as handle:
                 lines = handle.readlines()[-bounded:]
         except OSError:
             return []
@@ -525,7 +526,7 @@ class DeceptionEngine:
         return records
 
 
-_engine: Optional[DeceptionEngine] = None
+_engine: DeceptionEngine | None = None
 _engine_lock = threading.RLock()
 
 
@@ -548,7 +549,7 @@ def get_deception_engine() -> DeceptionEngine:
         return _engine
 
 
-def set_deception_engine(engine: Optional[DeceptionEngine]) -> None:
+def set_deception_engine(engine: DeceptionEngine | None) -> None:
     """Replace the process-wide engine. Used by tests."""
     global _engine
     with _engine_lock:

@@ -13,7 +13,6 @@ from backend.app import app
 from backend.audit import logger as logger_module
 from backend.tools.registry import ToolResult, get_registry
 
-
 client = TestClient(app)
 
 

@@ -4,7 +4,6 @@ import httpx
 
 from backend.llm.openai_compatible_provider import OpenAICompatibleProvider
 
-
 TOOLS = [
     {
         "name": "get_memory_status",

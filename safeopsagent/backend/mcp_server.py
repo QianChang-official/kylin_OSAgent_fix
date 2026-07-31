@@ -11,7 +11,6 @@ from typing import Any
 
 from backend.mcp_adapter import call_mcp_tool, list_mcp_tools
 
-
 SERVER_NAME = "safeopsagent"
 SERVER_VERSION = "1.3.0"
 _AUTHENTICATED_PARENT_SCOPE_KEY = "safeops.console_auth_enforced"
@@ -62,7 +61,7 @@ def create_server():
 
 async def run_stdio() -> None:
     """Run the SafeOpsAgent MCP server over stdio."""
-    Server, types = _load_server_types()
+    _server_cls, _types = _load_server_types()  # 惰性导入兼作 MCP SDK 可用性检查
     NotificationOptions, InitializationOptions, stdio_server = _load_runtime_types()
     server = create_server()
 
@@ -99,7 +98,7 @@ def _create_sse_server():
     SDK (backend/requirements-mcp.txt). The returned sub-application has no
     independent authentication and may only be mounted under backend.app.
     """
-    Server, types = _load_server_types()
+    _server_cls, _types = _load_server_types()  # 惰性导入兼作 MCP SDK 可用性检查
     NotificationOptions, InitializationOptions, _ = _load_runtime_types()
     SseServerTransport = _load_sse_transport()
     from starlette.applications import Starlette
@@ -173,8 +172,8 @@ def main() -> None:
 
 def _load_server_types():
     try:
-        from mcp.server import Server
         import mcp.types as types
+        from mcp.server import Server
     except ImportError as exc:
         raise RuntimeError(
             "Optional MCP SDK is not installed. Install backend/requirements-mcp.txt "

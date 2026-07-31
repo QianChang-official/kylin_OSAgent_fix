@@ -11,10 +11,9 @@ import sys
 import pytest
 
 from backend.tools.config_drift_tool import (
-    _config_drift_check,
-    _collect_fingerprints,
-    _compare_baseline,
     CRITICAL_CONFIG_PATHS,
+    _collect_fingerprints,
+    _config_drift_check,
     register,
 )
 from backend.tools.registry import get_registry

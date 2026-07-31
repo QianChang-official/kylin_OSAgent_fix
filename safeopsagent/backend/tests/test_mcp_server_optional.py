@@ -1,8 +1,9 @@
-import pytest
 import asyncio
 import os
 import sys
 from pathlib import Path
+
+import pytest
 
 
 def test_optional_mcp_server_can_be_created_when_sdk_installed():

@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
-from typing import Iterable, Mapping, Sequence
 
 UNKNOWN_SOURCE = "unknown"
 MAX_FORWARDED_HOPS = 16

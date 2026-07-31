@@ -7,7 +7,7 @@ open log file fail to reclaim any disk space.
 import pytest
 
 from backend.analysis import build_diagnosis
-from backend.tools.impact_tool import _impact_analysis, _human_size, register
+from backend.tools.impact_tool import _human_size, _impact_analysis, register
 from backend.tools.registry import get_registry
 
 

@@ -13,8 +13,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend import app as app_module
 from backend import mcp_server
-from backend.mcp_server import mount_sse_server, run_sse, _load_sse_transport
-from backend.mcp_adapter import list_mcp_tools, call_mcp_tool
+from backend.mcp_adapter import call_mcp_tool, list_mcp_tools
+from backend.mcp_server import _load_sse_transport, mount_sse_server, run_sse
 
 try:
     import mcp  # noqa: F401

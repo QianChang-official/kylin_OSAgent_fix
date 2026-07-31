@@ -20,7 +20,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_TIMEOUT_SECONDS = 3
@@ -199,7 +198,7 @@ class CheckRunner:
                 "http:/health",
                 "skip" if health["connection_error"] else "fail",
                 health["detail"],
-                f"Start backend first: python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000",
+                "Start backend first: python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000",
             )
             self._skip_http_dependents()
             return

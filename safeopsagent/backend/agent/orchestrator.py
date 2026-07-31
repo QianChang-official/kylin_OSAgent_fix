@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from backend import config
 from backend.analysis import build_diagnosis
@@ -13,7 +13,6 @@ from backend.llm.deepseek_client import DeepSeekClient
 from backend.security.guardrail import Guardrail, SecurityCheck
 from backend.security.rule_labels import flatten_rule_hits, label_rules
 from backend.tools.registry import ToolResult, get_registry
-
 
 CHAT_READONLY_TOOLS = {
     "get_memory_status",
@@ -49,10 +48,10 @@ class AgentOrchestrator:
         self.guardrail = Guardrail()
         self.registry = get_registry()
         self.audit = get_logger()
-        self._sessions: Dict[str, List[Dict]] = {}
-        self._session_meta: Dict[str, Dict[str, float]] = {}
+        self._sessions: dict[str, list[dict]] = {}
+        self._session_meta: dict[str, dict[str, float]] = {}
 
-    def run(self, session_id: str, user_input: str) -> Dict[str, Any]:
+    def run(self, session_id: str, user_input: str) -> dict[str, Any]:
         now = time.time()
         start_ms = int(now * 1000)
         request_id = str(uuid.uuid4())[:8]
@@ -401,7 +400,7 @@ class AgentOrchestrator:
             environment_limited=environment_limited,
         )
         security_decision = self._chat_security_decision(execution_status, risk_score)
-        summary, analysis, next_step = self._summarize_plan(planned_tools, tool_results, execution_status)
+        summary, analysis, next_step = self._summarize_plan(planned_tools, execution_status)
         environment_message = ENVIRONMENT_LIMITED_MESSAGE if environment_limited else ""
 
         return {
@@ -450,7 +449,7 @@ class AgentOrchestrator:
             return "no_action"
         return "allow"
 
-    def _summarize_plan(self, plan: list[dict], results: list[dict], status: str) -> tuple[str, str, str]:
+    def _summarize_plan(self, plan: list[dict], status: str) -> tuple[str, str, str]:
         successful = [item["tool_name"] for item in plan if item.get("status") == "success"]
         blocked = [item["tool_name"] for item in plan if item.get("status") == "blocked"]
         failed = [item["tool_name"] for item in plan if item.get("status") not in {"success", "planned", "blocked"}]
@@ -607,8 +606,8 @@ class AgentOrchestrator:
             })
         return summary
 
-    def _load_session_context(self, session_id: str, now: float) -> tuple[List[Dict], List[str]]:
-        events: List[str] = []
+    def _load_session_context(self, session_id: str, now: float) -> tuple[list[dict], list[str]]:
+        events: list[str] = []
         meta = self._session_meta.get(session_id)
         ttl = max(0, int(config.SESSION_TTL_SECONDS))
         if meta and ttl and now - meta.get("last_seen", now) > ttl:
@@ -617,7 +616,7 @@ class AgentOrchestrator:
         self._session_meta[session_id] = {"last_seen": now}
         return list(self._sessions.get(session_id, [])), events
 
-    def _trim_context(self, context: List[Dict]) -> List[Dict]:
+    def _trim_context(self, context: list[dict]) -> list[dict]:
         session_limit = max(0, int(config.SESSION_MAX_MESSAGES))
         if session_limit == 0:
             return []

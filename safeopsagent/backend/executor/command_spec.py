@@ -1,12 +1,11 @@
 """Command execution result structures for SafeOpsAgent."""
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
 class CommandResult:
     success: bool
-    returncode: Optional[int]
+    returncode: int | None
     stdout: str
     stderr: str
     command: list[str] = field(default_factory=list)

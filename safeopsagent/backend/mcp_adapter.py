@@ -11,7 +11,6 @@ from typing import Any
 import backend.app as app_module
 from backend.tools.registry import get_registry
 
-
 CONFIRM_TOOL_NAME = "safeops_confirm_tool"
 DEFAULT_MCP_SESSION_ID = "mcp"
 

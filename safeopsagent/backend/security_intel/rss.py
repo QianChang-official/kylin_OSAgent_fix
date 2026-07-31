@@ -11,11 +11,11 @@ import unicodedata
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import unquote, urlsplit
-
 
 AISECURITY_RSS_URL = "https://forum.butian.net/Rss/ai-security"
 AISECURITY_SOURCE_NAME = "Butian AI Security"
