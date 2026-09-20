@@ -10,6 +10,11 @@
     "scan": "node scan.mjs"
   },
   "dependencies": {
-    "@openai/codex-security": "0.1.6"
+    "@openai/codex-security": "0.1.29"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.6",
+    "smol-toml": "^1.7.1",
+    "fflate": "^0.8.3"
   }
 }
